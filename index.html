@@ -1,0 +1,2614 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>互动影游流程图编辑器</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        :root {
+            --bg-color: #121212;
+            --text-color: #e0e0e0;
+            --toolbar-bg: #1e1e1e;
+            --toolbar-border: #333;
+            --node-bg: #2d2d2d;
+            --node-border: #555;
+            --node-header: #383838;
+            --node-title: #fff;
+            --textarea-bg: #1e1e1e;
+            --textarea-border: #444;
+            --textarea-text: #ccc;
+            --btn-bg: #333;
+            --btn-text: #aaa;
+            --dot-color: rgba(255, 255, 255, 0.15);
+            --status-bg: #1e1e1e;
+            --canvas-bg: #0a0a0a;
+            --zoom-scale: 1;
+            /* 深色模式高保真霓虹线色 */
+            --line-color: #38bdf8;          
+            --line-selected-color: #ff4d6d; 
+        }
+
+        body.light-mode {
+            --bg-color: #f3f4f6;
+            --text-color: #1f2937;
+            --toolbar-bg: #ffffff;
+            --toolbar-border: #e5e7eb;
+            --node-bg: #ffffff;
+            --node-border: #d1d5db;
+            --node-header: #f9fafb;
+            --node-title: #1f2937;
+            --textarea-bg: #ffffff;
+            --textarea-border: #e5e7eb;
+            --textarea-text: #374151;
+            --btn-bg: #f3f4f6;
+            --btn-text: #4b5563;
+            --dot-color: rgba(0, 0, 0, 0.15);
+            --status-bg: #ffffff;
+            --canvas-bg: #f3f4f6;
+            /* 浅色模式经典高对比线色 */
+            --line-color: #1d4ed8;          
+            --line-selected-color: #e11d48; 
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            transition: background-color 0.3s, color 0.3s;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none; /* 彻底禁用系统级浏览器缩放和滚动，全权交给底层JS接管 */
+        }
+
+        body.scissors-mode, body.scissors-mode * { cursor: crosshair !important; }
+
+        /* 左键平移激活时的全局光标控制 */
+        body.pan-cursor-active #workspace-container {
+            cursor: grab;
+        }
+        body.pan-cursor-active #workspace-container:active {
+            cursor: grabbing !important;
+        }
+        /* 鼠标指在节点上时恢复正常光标，允许操作 */
+        body.pan-cursor-active .node,
+        body.pan-cursor-active .node :not(.resize-handle):not(.node-btn):not(.mh-resize):not(.mh-rotate-handle):not(.mini-img-wrapper):not(.node-touch-port) {
+            cursor: default !important;
+        }
+        body.pan-cursor-active .node input,
+        body.pan-cursor-active .node textarea {
+            cursor: text !important;
+        }
+        body.pan-cursor-active .node .mini-img-wrapper {
+            cursor: grab !important;
+        }
+        body.pan-cursor-active .node .resize-handle {
+            cursor: nwse-resize !important;
+        }
+
+        #toolbar {
+            height: 50px; background-color: var(--toolbar-bg); border-bottom: 1px solid var(--toolbar-border);
+            display: flex; align-items: center; padding: 0 20px; gap: 15px; z-index: 100;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1); transition: background-color 0.3s, border-color 0.3s;
+        }
+
+        button {
+            background-color: #2563eb; color: white; border: none; padding: 8px 16px;
+            border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500;
+            transition: background-color 0.2s; display: flex; align-items: center; gap: 6px;
+        }
+        button:hover { background-color: #1d4ed8; }
+        .btn-secondary { background-color: #374151; }
+        .btn-secondary:hover { background-color: #4b5563; }
+        .toolbar-right { margin-left: auto; display: flex; gap: 15px; }
+
+        #color-palette {
+            position: absolute; top: 110%; left: 0; background: var(--node-bg);
+            border: 1px solid var(--node-border); border-radius: 6px; padding: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5); display: none; flex-direction: column; gap: 10px; z-index: 200; width: 220px;
+        }
+        #color-palette.show { display: flex; }
+        .swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+        .swatch { width: 22px; height: 22px; border-radius: 4px; cursor: pointer; border: 2px solid transparent; transition: transform 0.1s, border-color 0.1s; }
+        .swatch:hover { transform: scale(1.15); border-color: #fff; box-shadow: 0 0 5px rgba(0,0,0,0.5); }
+        .custom-color-row { display: flex; align-items: center; justify-content: space-between; font-size: 12px; border-top: 1px solid var(--node-border); padding-top: 8px; color: var(--text-color); }
+        #custom-color-input { width: 26px; height: 26px; padding: 0; border: none; border-radius: 4px; cursor: pointer; background: none; }
+
+        /* 左侧竖排悬浮工具栏 */
+        #left-toolbar {
+            position: absolute;
+            left: 20px;
+            top: 70px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 100;
+        }
+        .left-btn {
+            width: 42px;
+            height: 42px;
+            border-radius: 8px;
+            background-color: var(--toolbar-bg);
+            border: 1px solid var(--toolbar-border);
+            color: var(--text-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            padding: 0;
+        }
+        .left-btn:hover {
+            background-color: var(--btn-bg);
+            color: #3b82f6;
+        }
+        .left-btn.active {
+            background-color: #2563eb;
+            color: white;
+            border-color: #2563eb;
+            box-shadow: 0 0 10px rgba(37, 99, 235, 0.6);
+        }
+
+        #workspace-container {
+            flex-grow: 1; position: relative; overflow: hidden;
+            background-image: radial-gradient(var(--dot-color) 1.5px, transparent 1.5px);
+            background-size: 30px 30px; transition: background-image 0.3s;
+        }
+        /* 一键开关点阵背景 */
+        #workspace-container.grid-hidden {
+            background-image: none !important;
+        }
+
+        #workspace { position: absolute; top: 0; left: 0; width: 0; height: 0; transform-origin: 0 0; }
+        
+        #svg-canvas-bg { position: absolute; top: -50000px; left: -50000px; width: 100000px; height: 100000px; overflow: visible; pointer-events: none; z-index: 0; }
+        #svg-canvas-fg { position: absolute; top: -50000px; left: -50000px; width: 100000px; height: 100000px; overflow: visible; pointer-events: none; z-index: 2; }
+        /* 智能对齐磁吸辅助线绘制层 */
+        #svg-guidelines { position: absolute; top: -50000px; left: -50000px; width: 100000px; height: 100000px; overflow: visible; pointer-events: none; z-index: 3; }
+
+        /* 连接线支持自适应主题变量配色 */
+        .connection-line { 
+            fill: none; 
+            stroke: var(--line-color, #3b82f6); 
+            stroke-width: 3.5; 
+            transition: stroke 0.2s, stroke-width 0.2s; 
+            pointer-events: none; 
+            vector-effect: non-scaling-stroke; 
+        }
+        .connection-line.selected-line { 
+            stroke: var(--line-selected-color, #ef4444); 
+            stroke-width: 5.5; 
+            vector-effect: non-scaling-stroke;
+        }
+        .connection-hitbox { fill: none; stroke: transparent; stroke-width: 25; cursor: pointer; pointer-events: stroke; }
+        .cut-path { fill: none; stroke: #ef4444; stroke-width: 3; stroke-dasharray: 6, 6; pointer-events: none; z-index: 1000; }
+
+        #nodes-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
+
+        .node {
+            position: absolute; background-color: var(--node-bg); border: 2px solid var(--node-border); border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: flex; flex-direction: column;
+            min-width: 220px; min-height: 160px; transition: border-color 0.2s, background-color 0.3s; pointer-events: auto;
+        }
+        .node.selected { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5), 0 6px 16px rgba(0,0,0,0.2); }
+        .node.drop-target { border-color: #4ade80; box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.5); }
+
+        .node-header { background-color: var(--node-header); padding: 8px 12px; border-top-left-radius: 6px; border-top-right-radius: 6px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--node-border); pointer-events: none; transition: background-color 0.3s, border-color 0.3s; }
+        .node-title { font-weight: 600; font-size: 14px; color: var(--node-title); border: none; background: transparent; outline: none; width: 100%; pointer-events: auto; cursor: text; transition: color 0.3s; }
+        .node-header-actions { display: flex; align-items: center; gap: 4px; pointer-events: auto; }
+        .node-delete-btn { color: #ef4444; cursor: pointer; font-size: 14px; opacity: 0.6; transition: opacity 0.2s; padding: 4px; border-radius: 4px; }
+        .node-delete-btn:hover { opacity: 1; background: rgba(239, 68, 68, 0.1); }
+
+        .node-content { padding: 12px; flex-grow: 1; display: flex; flex-direction: column; gap: 8px; overflow: hidden; pointer-events: none; }
+        .node-content > * { pointer-events: auto; }
+
+        .node-textarea {
+            width: 100%; flex: 1 1 auto; min-height: 40px; background: var(--textarea-bg); border: 1px solid var(--textarea-border);
+            color: var(--textarea-text); border-radius: 4px; padding: 6px; resize: none; outline: none; font-family: inherit;
+            transition: background 0.3s, border-color 0.3s, color 0.3s;
+            -webkit-user-select: text; user-select: text; /* 保证触屏端输入法正常唤醒 */
+        }
+        .node-textarea:focus { border-color: #3b82f6; }
+
+        /* --- 【避免触屏模式下未选中的节点内 textarea/input 被手指误触唤醒键盘】 --- */
+        .node:not(.selected) .node-textarea,
+        .node:not(.selected) .node-title {
+            pointer-events: none !important;
+        }
+
+        .node-media-controls { display: flex; gap: 4px; }
+        .node-btn {
+            flex: 1; background: var(--btn-bg); color: var(--btn-text); border: 1px solid var(--node-border); padding: 4px 0;
+            border-radius: 4px; font-size: 11px; cursor: pointer; transition: all 0.2s; text-align: center;
+        }
+        .node-btn:hover { filter: brightness(1.2); color: #3b82f6; border-color: #3b82f6; }
+
+        .media-gallery { width: 100%; background: var(--textarea-bg); border: 1px solid var(--node-border); border-radius: 4px; display: none; flex-direction: column; position: relative; }
+        .media-gallery.has-content { display: flex; }
+        
+        .image-canvas-container {
+            width: 100%; position: relative; overflow: hidden; background: var(--canvas-bg); border-bottom: 1px solid var(--node-border); min-height: 40px;
+            isolation: isolate; transition: background-color 0.3s; cursor: default;
+        }
+        .image-canvas-container.drag-over-canvas { border: 2px dashed #4ade80; background-color: rgba(74, 222, 128, 0.1); }
+        
+        .image-canvas-resizer { width: 100%; height: 8px; background: var(--node-header); cursor: ns-resize; display: flex; justify-content: center; align-items: center; border-bottom: 1px solid var(--node-border);}
+        .image-canvas-resizer::after { content: ''; width: 30px; height: 2px; background: var(--node-border); border-radius: 1px; }
+        .image-canvas-resizer:hover { filter: brightness(0.9); }
+
+        .canvas-selection-box { position: absolute; border: 1px dashed #4ade80; background-color: rgba(74, 222, 128, 0.2); display: none; z-index: 50; pointer-events: none; }
+
+        .mini-img-wrapper { position: absolute; display: inline-block; cursor: grab; transform-origin: center center; }
+        .mini-img-wrapper:active { cursor: grabbing; }
+        .mini-img-wrapper img { width: 100%; height: 100%; object-fit: contain; pointer-events: auto; }
+        
+        .mini-img-wrapper .mh-resize, .mini-img-wrapper .mh-rotate-handle { display: none; }
+        .mini-img-wrapper.active-img { outline: 2px solid #3b82f6; z-index: 100 !important; }
+        .mini-img-wrapper.active-img .mh-resize, .mini-img-wrapper.active-img .mh-rotate-handle { display: block; }
+        
+        .mini-img-wrapper .mh-resize { 
+            position: absolute; width: 12px; height: 12px; background: white; border: 1px solid #3b82f6; border-radius: 50%; z-index: 20; pointer-events: auto;
+        }
+        .mh-resize.mh-tl { top: -6px; left: -6px; cursor: nwse-resize; }
+        .mh-resize.mh-tr { top: -6px; right: -6px; cursor: nesw-resize; }
+        .mh-resize.mh-bl { bottom: -6px; left: -6px; cursor: nesw-resize; }
+        .mh-resize.mh-br { bottom: -6px; right: -6px; cursor: nwse-resize; }
+        
+        .mini-img-wrapper .mh-rotate-handle { 
+            position: absolute; width: 22px; height: 22px; z-index: 15; pointer-events: auto; border-radius: 50%; border: 1px dashed transparent; 
+        }
+        .mh-rotate-handle.mh-rot-tl { top: -20px; left: -20px; cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cpath d='M8 18A10 10 0 0 1 18 8' fill='none' stroke='black' stroke-width='4' stroke-linecap='round'/%3E%3Cpath d='M8 18A10 10 0 0 1 18 8' fill='none' stroke='white' stroke-width='2' stroke-linecap='round'/%3E%3Cpath d='M14 5l4 3l-4 3z' fill='black'/%3E%3Cpath d='M14 5l4 3l-4 3z' fill='white' stroke='white' stroke-width='1'/%3E%3Cpath d='M5 14l3 4l3-4z' fill='black'/%3E%3Cpath d='M5 14l3 4l3-4z' fill='white' stroke='white' stroke-width='1'/%3E%3C/svg%3E") 16 16, crosshair; }
+        .mh-rotate-handle.mh-rot-tr { top: -20px; right: -20px; cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cpath d='M14 8a10 10 0 0 1 10 10' fill='none' stroke='black' stroke-width='4' stroke-linecap='round'/%3E%3Cpath d='M14 8a10 10 0 0 1 10 10' fill='none' stroke='white' stroke-width='2' stroke-linecap='round'/%3E%3Cpath d='M18 5l-4 3l4 3z' fill='black'/%3E%3Cpath d='M18 5l-4 3l4 3z' fill='white' stroke='white' stroke-width='1'/%3E%3Cpath d='M21 14l3 4l3-4z' fill='black'/%3E%3Cpath d='M21 14l3 4l3-4z' fill='white' stroke='white' stroke-width='1'/%3E%3C/svg%3E") 16 16, crosshair; }
+        .mh-rotate-handle.mh-rot-bl { bottom: -20px; left: -20px; cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cpath d='M8 14a10 10 0 0 0 10 10' fill='none' stroke='black' stroke-width='4' stroke-linecap='round'/%3E%3Cpath d='M8 14a10 10 0 0 0 10 10' fill='none' stroke='white' stroke-width='2' stroke-linecap='round'/%3E%3Cpath d='M5 18l3-4l3 4z' fill='black'/%3E%3Cpath d='M5 18l3-4l3 4z' fill='white' stroke='white' stroke-width='1'/%3E%3Cpath d='M14 21l4 3l-4 3z' fill='black'/%3E%3Cpath d='M14 21l4 3l-4 3z' fill='white' stroke='white' stroke-width='1'/%3E%3C/svg%3E") 16 16, crosshair; }
+        .mh-rotate-handle.mh-rot-br { bottom: -20px; right: -20px; cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cpath d='M14 24a10 10 0 0 0 10-10' fill='none' stroke='black' stroke-width='4' stroke-linecap='round'/%3E%3Cpath d='M14 24a10 10 0 0 0 10-10' fill='none' stroke='white' stroke-width='2' stroke-linecap='round'/%3E%3Cpath d='M18 21l-4 3l4 3z' fill='black'/%3E%3Cpath d='M18 21l-4 3l4 3z' fill='white' stroke='white' stroke-width='1'/%3E%3Cpath d='M21 18l3-4l3 4z' fill='black'/%3E%3Cpath d='M21 18l3-4l3 4z' fill='white' stroke='white' stroke-width='1'/%3E%3C/svg%3E") 16 16, crosshair; }
+
+        .canvas-tip { position: absolute; bottom: 4px; left: 4px; color: rgba(128,128,128,0.6); font-size: 10px; pointer-events: none; z-index: 0; text-align: center; width: calc(100% - 8px); }
+
+        .video-list-container { overflow-y: auto; padding: 4px; border-bottom: 1px solid var(--node-border); }
+        .media-video-item {
+            display: flex; align-items: center; justify-content: space-between; background: var(--node-header);
+            padding: 6px 8px; border-radius: 4px; margin-bottom: 4px; border: 1px solid var(--node-border); font-size: 12px; transition: background 0.2s; color: var(--text-color);
+        }
+        .media-video-item:hover { filter: brightness(1.1); }
+        .video-info { display: flex; align-items: center; flex-grow: 1; overflow: hidden; cursor: pointer; }
+        .video-name { flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 10px; color: #3b82f6; outline: none; padding: 2px 4px; border-radius: 2px; }
+        .video-name[contenteditable="true"] { background: var(--textarea-bg); border-bottom: 1px solid #3b82f6; cursor: text; }
+        .video-actions { display: flex; gap: 8px; align-items: center; padding-right: 5px; }
+        .v-btn { color: #888; cursor: pointer; padding: 4px; transition: all 0.2s; font-size: 13px; }
+        .v-btn:hover { color: #fff; }
+        
+        .video-del-btn { color: #ef4444 !important; }
+        .video-del-btn:hover { color: #f87171 !important; }
+
+        .video-list-resizer { width: 100%; height: 8px; background: var(--node-header); cursor: ns-resize; display: flex; justify-content: center; align-items: center; }
+        .video-list-resizer::after { content: ''; width: 30px; height: 2px; background: var(--node-border); border-radius: 1px; }
+        .video-list-resizer:hover { filter: brightness(0.9); }
+
+        .resize-handle { 
+            position: absolute; 
+            right: 0; 
+            bottom: 0; 
+            width: 20px; 
+            height: 20px; 
+            cursor: nwse-resize !important; 
+            pointer-events: auto; 
+            z-index: 10;
+        }
+        .resize-handle::after { 
+            content: ''; 
+            position: absolute; 
+            right: 4px; 
+            bottom: 4px; 
+            width: 0; 
+            height: 0; 
+            border-style: solid; 
+            border-width: 0 0 10px 10px; 
+            border-color: transparent transparent #888 transparent; 
+        }
+
+        /* --- 【高感度拉线热区：虚线隐形，宽度放大 5 倍，呈现超唯美边缘柔和发光投影，不加任何图标】 --- */
+        .node-touch-port {
+            position: absolute;
+            right: -100px; /* 大幅外扩，大面积盲操触控 */
+            top: 0;
+            width: 100px; /* 5倍宽 */
+            height: 100%;
+            background-color: transparent; 
+            border: none; /* 去掉任何多余的虚框 */
+            border-radius: 0 12px 12px 0;
+            z-index: 15;
+            display: none; /* 默认键鼠模式隐藏 */
+            pointer-events: auto; /* 保证不被空白处新建遮断 */
+            transition: background-color 0.2s, box-shadow 0.2s;
+        }
+        /* 触屏模式下，呈现梦幻虚化柔和边的超级淡投影，极难被直接察觉，非常高端 */
+        body.touch-mode-active .node-touch-port {
+            display: block;
+            background: linear-gradient(to right, rgba(37, 99, 235, 0.08) 0%, rgba(37, 99, 235, 0.02) 40%, transparent 100%);
+            box-shadow: inset 12px 0 15px -12px rgba(37, 99, 235, 0.12);
+        }
+
+        #magnetic-port {
+            position: absolute; width: 28px; height: 28px; background: #3b82f6; color: white; border-radius: 50%; display: none; justify-content: center; align-items: center; font-size: 14px; cursor: crosshair; z-index: 500; box-shadow: 0 0 10px rgba(59, 130, 246, 0.8); transform: translate(-50%, -50%); pointer-events: auto;
+        }
+
+        #selection-box { position: absolute; border: 1px solid rgba(59, 130, 246, 0.8); background-color: rgba(59, 130, 246, 0.2); display: none; z-index: 100; pointer-events: none; }
+
+        #media-preview-modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); z-index: 9999; display: none; justify-content: center; align-items: center; overflow: hidden; }
+        #media-preview-modal.show { display: flex; }
+        .preview-image-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; overflow: hidden; pointer-events: none; }
+        #preview-image { max-width: 90vw; max-height: 90vh; object-fit: contain; box-shadow: 0 10px 30px rgba(0,0,0,0.5); cursor: grab; display: none; transform-origin: center center; pointer-events: auto; }
+        #preview-image:active { cursor: grabbing; }
+        #preview-video { position: relative; z-index: 10; max-width: 90%; max-height: 90%; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 2px solid #555; display: none; outline: none; pointer-events: auto; }
+        .preview-tip { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.6); font-size: 14px; pointer-events: none; background: rgba(0,0,0,0.5); padding: 6px 12px; border-radius: 20px; z-index: 20;}
+
+        /* 状态栏 */
+        #status-bar {
+            position: fixed; bottom: 0; left: 0; right: 0; height: 30px; background-color: var(--status-bg); border-top: 1px solid var(--toolbar-border);
+            display: flex; align-items: center; padding: 0 20px; color: var(--textarea-text); font-size: 12px; z-index: 100; transition: background-color 0.3s, border-top-color 0.3s, color 0.3s;
+        }
+        #status-bar span { margin-right: 20px; }
+        #status-bar b { color: #3b82f6; }
+
+        /* --- 【LOD (Level of Detail) 极度缩小下的超级性能与极简圆点净化模式样式】 --- */
+        .lod-active #nodes-container .node {
+            background-color: transparent !important;
+            border-color: transparent !important;
+            box-shadow: none !important;
+            pointer-events: none; /* 缩小状态下禁用多余的子代交互，提升绝对性能 */
+        }
+        .lod-active #nodes-container .node * {
+            display: none !important;
+        }
+        
+        /* 【核心数学物理重构】：
+           圆点使用绝对画布等比尺寸（80px），保证极限缩小时自然随间距一起变小，
+           彻底消除大范围缩小后重叠遮挡的情况，极具美感。
+        */
+        .lod-active #nodes-container .node::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 80px; 
+            height: 80px;
+            transform: translate(-50%, -50%);
+            border-radius: 50%;
+            background-color: var(--node-color, #3b82f6) !important;
+            border: 10px solid #ffffff; /* 恒定对比边框 */
+            box-shadow: 0 0 35px var(--node-color, #3b82f6);
+            display: block !important;
+            pointer-events: auto; /* 让圆点本身依然可以被选中和拖拽！ */
+            transition: none; /* 缩放时瞬间响应，无任何过渡延迟 */
+        }
+        
+        /* 缩小至圆点时，被选中节点大圆点显示高亮外发光 */
+        .lod-active #nodes-container .node.selected::after {
+            border-color: #ef4444 !important; /* 选中时圆点边框变为高亮红色 */
+            box-shadow: 0 0 60px #ef4444, 0 0 25px #ef4444 !important;
+            width: 100px; /* 选中时等比大一圈 */
+            height: 100px;
+        }
+
+        /* --- 【骨架连接线极限缩小加粗显化、及外发光投影滤镜注入】 --- */
+        .lod-active .connection-line {
+            stroke-width: 6; /* 骨架圆点状态下，导线物理强制加粗至 6px，极度醒目 */
+            filter: drop-shadow(0 0 4px var(--line-color));
+        }
+        .lod-active .connection-line.selected-line {
+            stroke-width: 9; /* 选中路径物理加粗至 9px，完美锁定脉络 */
+            filter: drop-shadow(0 0 8px var(--line-selected-color));
+        }
+    </style>
+</head>
+<body class="light-mode" oncontextmenu="return false;">
+
+<div id="toolbar">
+    <button id="add-node-btn"><i class="fas fa-plus"></i> 新增节点</button>
+    <div id="color-picker-wrapper" style="position: relative; display: flex; align-items: center;">
+        <button id="toolbar-color-btn" class="btn-secondary" title="设置选中节点颜色"><i class="fas fa-palette"></i> 节点颜色</button>
+        <div id="color-palette">
+            <div class="swatches" id="swatches-container"></div>
+            <div class="custom-color-row">
+                <label for="custom-color-input">自定义:</label>
+                <input type="color" id="custom-color-input" value="#383838" title="选择任意颜色">
+            </div>
+        </div>
+    </div>
+    <button id="save-btn" class="btn-secondary" title="导出故事场景流程图 JSON 数据"><i class="fas fa-save"></i> 导出保存</button>
+    <button id="load-btn" class="btn-secondary" onclick="document.getElementById('file-input').click()"><i class="fas fa-folder-open"></i> 导入文件</button>
+    <input type="file" id="file-input" style="display: none;" accept=".json">
+    
+    <button id="relink-folder-btn" class="btn-secondary" onclick="document.getElementById('directory-input').click()" title="一键关联项目内的所有本地视频"><i class="fas fa-link"></i> 关联项目文件夹</button>
+    <input type="file" id="directory-input" style="display: none;" webkitdirectory directory multiple>
+
+    <div class="toolbar-right">
+        <!-- 默认浅色模式下，按钮显示“深色模式” -->
+        <button id="theme-toggle-btn" class="btn-secondary" style="background-color: #374151;"><i class="fas fa-moon"></i> 深色模式</button>
+    </div>
+</div>
+
+<div id="workspace-container">
+    <!-- 左侧竖排悬浮工具栏 (1.平移切换 2.网格吸附切换 3.背景网格开关) -->
+    <div id="left-toolbar">
+        <button id="pan-toggle-btn" class="left-btn" title="鼠标左键平移模式 (Mac/无中键用户推荐)"><i class="fas fa-hand-paper"></i></button>
+        <button id="snap-toggle-btn" class="left-btn" title="智能边界磁吸与网格捕捉"><i class="fas fa-th"></i></button>
+        <button id="grid-toggle-btn" class="left-btn active" title="开启/关闭背景点阵网格"><i class="fas fa-border-all"></i></button>
+        <!-- 新增键鼠与触控可以选择切换的按钮，并在触控设备上高亮显示 -->
+        <button id="device-toggle-btn" class="left-btn" title="手动切换 键鼠/触控 模式"><i class="fas fa-desktop"></i></button>
+    </div>
+
+    <div id="workspace">
+        <!-- 背景层：用于渲染可见连接线 -->
+        <svg id="svg-canvas-bg" viewBox="-50000 -50000 100000 100000"></svg>
+        <div id="nodes-container"></div>
+        <!-- 交互层：放在节点上方（z-index: 2），专门捕获连线点击，保证100%能够选中且极速双击断开 -->
+        <svg id="svg-canvas-fg" viewBox="-50000 -50000 100000 100000"></svg>
+        <!-- 智能对齐辅助线绘制层 -->
+        <svg id="svg-guidelines" viewBox="-50000 -50000 100000 100000"></svg>
+        <div id="magnetic-port" draggable="false"><i class="fas fa-plus" draggable="false"></i></div>
+    </div>
+    <div id="selection-box"></div>
+</div>
+
+<div id="status-bar">
+    <span id="sb-default"><i class="fas fa-mouse"></i> 左键: 框选/拖拽</span>
+    <span id="sb-scissors" style="display:none; color:#ef4444;"><b><i class="fas fa-cut"></i> 剪刀模式: 左键划线切断连线 (松开左键退出)</b></span>
+    <span><i class="fas fa-mouse-pointer"></i> 中键/手形工具: 平移画布</span>
+    <span><i class="fas fa-search"></i> 滚轮: 缩放画布</span>
+    <span><i class="fas fa-copy"></i> <b>复制节点:</b> Ctrl+C/V 或 Alt+左键拖拽</span>
+</div>
+
+<div id="media-preview-modal">
+    <div class="preview-tip" id="preview-image-tip">滚轮缩放 | 按住拖拽平移 | 双击背景退出</div>
+    <div class="preview-tip" id="preview-video-tip" style="display:none;">双击背景退出</div>
+    <div class="preview-image-container"><img id="preview-image" src="" alt="预览" draggable="false"></div>
+    <video id="preview-video" controls></video>
+</div>
+
+<input type="file" id="image-upload-input" style="display: none;" accept="image/*" multiple>
+<input type="file" id="video-upload-input" style="display: none;" accept="video/*">
+<input type="file" id="relink-video-input" style="display: none;" accept="video/*">
+
+<script>
+    // --- 【Tauri/WebView 外部拖放保护】 ---
+    window.addEventListener('dragover', e => e.preventDefault());
+    window.addEventListener('drop', e => e.preventDefault());
+
+    const nodeThemes = [
+        { id: 0, bg: 'var(--node-bg)', header: 'var(--node-header)', border: 'var(--node-border)' },
+        { id: 1, bg: '#1f2937', header: '#111827', border: '#374151' }, 
+        { id: 2, bg: '#7f1d1d', header: '#991b1b', border: '#b91c1c' }, 
+        { id: 3, bg: '#7c2d12', header: '#9a3412', border: '#c2410c' }, 
+        { id: 4, bg: '#713f12', header: '#854d0e', border: '#a16207' }, 
+        { id: 5, bg: '#3f6212', header: '#4d7c0f', border: '#65a30d' }, 
+        { id: 6, bg: '#14532d', header: '#166534', border: '#15803d' }, 
+        { id: 7, bg: '#064e3b', header: '#065f46', border: '#059669' }, 
+        { id: 8, bg: '#164e63', header: '#0f766e', border: '#0d9488' }, 
+        { id: 9, bg: '#0c4a6e', header: '#0369a1', border: '#0284c7' }, 
+        { id: 10, bg: '#1e3a8a', header: '#1e40af', border: '#2563eb' }, 
+        { id: 11, bg: '#312e81', header: '#3730a3', border: '#4f46e5' }, 
+        { id: 12, bg: '#4c1d95', header: '#5b21b6', border: '#6d28d9' }, 
+        { id: 13, bg: '#701a75', header: '#86198f', border: '#a21caf' }, 
+        { id: 14, bg: '#831843', header: '#9d174d', border: '#be185d' }, 
+        { id: 15, bg: '#475569', header: '#374151', border: '#64748b' }, 
+        { id: 16, bg: '#ef4444', header: '#dc2626', border: '#f87171' }, 
+        { id: 17, bg: '#f97316', header: '#ea580c', border: '#fb923c' }, 
+        { id: 18, bg: '#eab308', header: '#ca8a04', border: '#facc15' }, 
+        { id: 19, bg: '#84cc16', header: '#65a30d', border: '#a3e635' }, 
+        { id: 20, bg: '#22c55e', header: '#16a34a', border: '#4ade80' }, 
+        { id: 21, bg: '#10b981', header: '#059669', border: '#34d399' }, 
+        { id: 22, bg: '#06b6d4', header: '#0891b2', border: '#22d3ee' }, 
+        { id: 23, bg: '#0ea5e9', header: '#0284c7', border: '#38bdf8' }, 
+        { id: 24, bg: '#3b82f6', header: '#2563eb', border: '#60a5fa' }, 
+        { id: 25, bg: '#6366f1', header: '#4f46e5', border: '#818cf8' }, 
+        { id: 26, bg: '#8b5cf6', header: '#7c3aed', border: '#a78bfa' }, 
+        { id: 27, bg: '#d946ef', header: '#c026d3', border: '#e879f9' }, 
+        { id: 28, bg: '#f43f5e', header: '#e11d48', border: '#fb7185' }, 
+        { id: 29, bg: '#000000', header: '#111111', border: '#333333' }  
+    ];
+
+    const swatchesContainer = document.getElementById('swatches-container');
+    nodeThemes.forEach((theme, index) => {
+        const div = document.createElement('div');
+        div.className = 'swatch';
+        div.style.backgroundColor = theme.bg.startsWith('var') ? '#888' : theme.header;
+        if(index === 0) div.title = "跟随全局主题";
+        div.dataset.theme = index;
+        swatchesContainer.appendChild(div);
+    });
+
+    let nodes = {}; 
+    let connections = []; 
+    let scale = 1, panX = 0, panY = 0;
+    
+    let isDraggingNode = false, isPanning = false, isSelecting = false, isConnecting = false;
+    let isResizingCanvas = false, isResizingVidList = false;
+    let isScissorsMode = false, isCutting = false, cutPath = [];
+
+    let activeCanvasNodeId = null;
+    let selectedMiniImgs = new Set();
+    let isCanvasSelecting = false;
+    let canvasSelectionStartX = 0, canvasSelectionStartY = 0;
+    
+    let isDraggingMiniImg = false, isResizingMiniImg = false, isRotatingMiniImg = false;
+    let miniImgStartData = {}; 
+    let activeResizeDir = '';
+    let miniImgStartX = 0, miniImgStartY = 0;
+    let startMouseAngle = 0, rotateCenterScreenX = 0, rotateCenterScreenY = 0;
+
+    let startPanX = 0, startPanY = 0, dragStartMouseX = 0, dragStartMouseY = 0;
+    let selectionStartX = 0, selectionStartY = 0;
+    let draggedNodesInitialPositions = {};
+    let connectStartNodeId = null, tempLineEnd = {x:0, y:0};
+    let resizeCanvasNodeId = null, resizeCanvasStartY = 0, resizeCanvasStartH = 0;
+    let resizeVidListNodeId = null, resizeVidListStartY = 0, resizeVidListStartH = 0;
+
+    let selectedNodes = new Set();
+    let selectedLineIndices = new Set(); 
+    let previewImgScale = 1, previewImgPanX = 0, previewImgPanY = 0;
+    let isDraggingPreview = false, previewDragStartX = 0, previewDragStartY = 0, previewStartPanX = 0, previewStartPanY = 0;
+    
+    let isLightMode = true;
+
+    // --- 【平移、吸附与网格控制变量】 ---
+    let isPanMode = false; 
+    let isGridSnap = false;
+    let isGridVisible = true;
+
+    // --- 【复制粘贴系统核心数据存储】 ---
+    let copiedNodesClipboard = null; 
+    let altDraggingCopied = false; 
+
+    // --- 【边界自动推移平移控制变量】 ---
+    let edgeScrollSpeedX = 0;
+    let edgeScrollSpeedY = 0;
+    let edgeScrollInterval = null;
+    let lastX = 0, lastY = 0;
+
+    // --- 【LOD (Level of Detail) 记忆状态】 ---
+    let lastLODState = false;
+
+    // --- 【触控手势专用变量集】 ---
+    let isTouchMode = false;                // 触控/键鼠 模式标记
+    let touchStartDist = 0;                 // 捏合初始距离
+    let touchStartScale = 1;                // 捏合初始比例
+    let touchStartCenter = null;            // 捏合中心基准
+    let lastTapTime = 0;                    // 上一次轻触时间
+    let lastTapX = 0;                       // 上一次轻触坐标
+    let lastTapY = 0;
+    let threeFingerTapCount = 0;            // 三指点击计数
+    let lastThreeFingerTapTime = 0;
+
+    // --- 【触控高精度节点缩放与决策变量】 ---
+    let isResizingNodeTouch = false;
+    let resizeNodeTouchId = null;
+    let resizeStartW = 240, resizeStartH = 200;
+    let resizeStartX = 0, resizeStartY = 0;
+    let doubleTapPending = false;           // 双击手势决策锁，防止立即穿透
+    let doubleTapWorkspacePos = { x: 0, y: 0 };
+    let cloneSourceOnTouch = null;          // 专为触屏双击空白处复制选中节点建立的变量源
+
+    // --- 【高阶触控拉升上下 Resizer 栏支持变量】 ---
+    let isResizingCanvasTouch = false;
+    let touchResizeCanvasNodeId = null;
+    let touchResizeCanvasStartY = 0;
+    let touchResizeCanvasStartH = 0;
+
+    let isResizingVidListTouch = false;
+    let touchResizeVidListNodeId = null;
+    let touchResizeVidListStartY = 0;
+    let touchResizeVidListStartH = 0;
+
+    const workspaceContainer = document.getElementById('workspace-container');
+    const workspace = document.getElementById('workspace');
+    const svgBg = document.getElementById('svg-canvas-bg');
+    const svgFg = document.getElementById('svg-canvas-fg');
+    const svgGuidelines = document.getElementById('svg-guidelines');
+    const nodesContainer = document.getElementById('nodes-container');
+    const selectionBox = document.getElementById('selection-box');
+    const magneticPort = document.getElementById('magnetic-port');
+    const generateId = () => 'id_' + Math.random().toString(36).substr(2, 9);
+    
+    function setGlobalSelect(disable) {
+        if (disable) { document.body.style.userSelect = 'none'; document.body.style.webkitUserSelect = 'none'; window.getSelection().removeAllRanges(); } 
+        else { document.body.style.userSelect = ''; document.body.style.webkitUserSelect = ''; }
+    }
+
+    function screenToWorkspace(clientX, clientY) {
+        const rect = workspaceContainer.getBoundingClientRect();
+        return { x: (clientX - rect.left - panX) / scale, y: (clientY - rect.top - panY) / scale };
+    }
+
+    // 画布位置、缩放渲染，融入极致缩小净化优化与LOD触发生命周期
+    function updateWorkspaceTransform() {
+        workspace.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+        workspaceContainer.style.backgroundPosition = `${panX}px ${panY}px`;
+        workspaceContainer.style.backgroundSize = `${30 * scale}px ${30 * scale}px`;
+
+        // 极佳视觉优化：当缩小到 0.12 以下时，自动隐藏背景微小网格，防止点阵重叠导致视觉疲劳
+        if (scale < 0.12) {
+            workspaceContainer.style.backgroundImage = 'none';
+        } else if (isGridVisible) {
+            workspaceContainer.style.backgroundImage = ''; // 恢复 CSS 中的 dot-color radial-gradient
+        }
+
+        updateLOD();
+    }
+
+    // --- 【高阶：LOD智能细节层级状态变更检测与无极线段重绘】 ---
+    // 将 LOD 触发阈值从 0.12 进一步调小到极其宏观的 0.05
+    function updateLOD() {
+        const currentLODState = (scale < 0.05);
+        if (currentLODState !== lastLODState) {
+            lastLODState = currentLODState;
+            if (currentLODState) {
+                workspaceContainer.classList.add('lod-active');
+            } else {
+                workspaceContainer.classList.remove('lod-active');
+            }
+            // 状态变更，瞬间重绘连接线
+            drawAllLines(); 
+        }
+    }
+
+    document.getElementById('theme-toggle-btn').addEventListener('click', (e) => {
+        isLightMode = !isLightMode;
+        document.body.classList.toggle('light-mode', isLightMode);
+        const btn = e.currentTarget;
+        if (isLightMode) { btn.innerHTML = '<i class="fas fa-moon"></i> 深色模式'; btn.style.backgroundColor = '#374151'; } 
+        else { btn.innerHTML = '<i class="fas fa-sun"></i> 浅色模式'; btn.style.backgroundColor = ''; }
+        Object.keys(nodes).forEach(id => applyNodeColor(id, nodes[id].themeId, nodes[id].customColor));
+    });
+
+    // --- 【双层 SVG 交互分离与 100% 极速双击断开】 ---
+    function drawAllLines() {
+        let bgContent = ''; 
+        let fgContent = ''; 
+
+        connections.forEach((conn, index) => {
+            if (!nodes[conn.from] || !nodes[conn.to]) return;
+            const start = getPortPos(conn.from, 'out'), end = getPortPos(conn.to, 'in');
+            const pathData = generateBezierPath(start, end);
+            const isSelectedClass = selectedLineIndices.has(index) ? 'selected-line' : '';
+            
+            // 底部渲染
+            bgContent += `<path class="connection-line ${isSelectedClass}" d="${pathData}" data-idx="${index}"></path>`;
+            
+            // 顶部交互层：阻止 mousedown 并直通 window.deleteLineByDblClick
+            // iPad/手机 触控设备增加 ontouchstart 双击判定绑定
+            fgContent += `<path class="connection-hitbox" d="${pathData}" data-idx="${index}" onmousedown="event.stopPropagation();" onclick="event.stopPropagation(); window.selectLine(${index}, event);" ondblclick="event.preventDefault(); event.stopPropagation(); window.deleteLineByDblClick(${index});" ontouchstart="event.stopPropagation(); event.preventDefault(); window.handleLineTouch(${index}, event);"></path>`;
+        });
+
+        if (isConnecting && connectStartNodeId) {
+            const start = getPortPos(connectStartNodeId, 'out');
+            if(start.x || start.y) {
+                bgContent += `<path class="connection-line" d="${generateBezierPath(start, tempLineEnd)}" style="stroke: #3b82f6; stroke-dasharray: 5,5;"></path>`;
+            }
+        }
+
+        svgBg.innerHTML = bgContent;
+        svgFg.innerHTML = fgContent;
+        drawCutPath(); 
+    }
+
+    // --- 【触屏端：单指双击连接线删除该线】 ---
+    let lastLineTouchTime = 0;
+    let lastLineTouchIdx = null;
+    window.handleLineTouch = function(index, e) {
+        let now = Date.now();
+        if (lastLineTouchIdx === index && now - lastLineTouchTime < 350) {
+            // 双击连接线
+            window.deleteLineByDblClick(index);
+            lastLineTouchIdx = null;
+        } else {
+            lastLineTouchIdx = index;
+            window.selectLine(index, e);
+        }
+        lastLineTouchTime = now;
+    };
+
+    window.selectLine = function(index, e) {
+        if (isScissorsMode) return;
+        if (!e.shiftKey) selectedLineIndices.clear();
+        selectedLineIndices.add(index);
+        drawAllLines();
+    };
+
+    window.deleteLineByDblClick = function(index) {
+        if (!isNaN(index) && connections[index]) {
+            connections.splice(index, 1);
+            selectedLineIndices.clear();
+            drawAllLines();
+        }
+    };
+
+    function generateBezierPath(start, end) {
+        const dx = Math.abs(end.x - start.x);
+        const controlOffset = Math.max(dx * 0.5, 50);
+        return `M ${start.x} ${start.y} C ${start.x + controlOffset} ${start.y}, ${end.x - controlOffset} ${end.y}, ${end.x} ${end.y}`;
+    }
+
+    // --- 【LOD自适应连线端口物理坐标换算】 ---
+    function getPortPos(nodeId, type) {
+        const n = nodes[nodeId]; if (!n) return { x: 0, y: 0 };
+        // LOD 状态下（小于0.05），连线直接汇总连入大圆点中心，形成极其利落宏观的脉络骨架
+        if (scale < 0.05) {
+            return { x: n.x + n.w / 2, y: n.y + n.h / 2 };
+        }
+        return type === 'out' ? { x: n.x + n.w, y: n.y + n.h / 2 } : { x: n.x, y: n.y + n.h / 2 };
+    }
+
+    function bindLineEvents() {}
+
+    function drawCutPath() {
+        let pathEl = document.getElementById('cut-path-line');
+        if (!pathEl) {
+            pathEl = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+            pathEl.id = 'cut-path-line'; pathEl.setAttribute('class', 'cut-path'); svgBg.appendChild(pathEl);
+        }
+        if (cutPath.length === 0) pathEl.setAttribute('points', '');
+        else pathEl.setAttribute('points', cutPath.map(p => `${p.x},${p.y}`).join(' '));
+    }
+
+    function getBezierPoint(t, p0, p1, p2, p3) {
+        let mt = 1 - t, mt2 = mt * mt, t2 = t * t;
+        return { x: mt2 * mt * p0.x + 3 * mt2 * t * p1.x + 3 * mt * t2 * p2.x + t2 * t * p3.x, y: mt2 * mt * p0.y + 3 * mt2 * t * p1.y + 3 * mt * t2 * p2.y + t2 * t * p3.y };
+    }
+
+    // --- 【边界检测碰撞公式：用于剪切和画辅助线】 ---
+    function doSegmentsIntersect(p0, p1, p2, p3) {
+        let s1_x = p1.x - p0.x, s1_y = p1.y - p0.y, s2_x = p3.x - p2.x, s2_y = p3.y - p2.y;
+        let den = (-s2_x * s1_y + s1_x * s2_y); if (den === 0) return false;
+        let s = (-s1_y * (p0.x - p2.x) + s1_x * (p0.y - p2.y)) / den, t = ( s2_x * (p0.y - p2.y) - s2_y * (p0.x - p2.x)) / den;
+        return (s >= 0 && s <= 1 && t >= 0 && t <= 1);
+    }
+
+    function renderNodeMedia(nodeId) {
+        const n = nodes[nodeId]; const nodeEl = document.getElementById(nodeId); if (!nodeEl) return;
+        const gallery = nodeEl.querySelector('.media-gallery'); gallery.innerHTML = '';
+        let hasContent = false;
+
+        if (n.images && n.images.length > 0) {
+            hasContent = true;
+            const containerEl = document.createElement('div');
+            containerEl.className = 'image-canvas-container';
+            containerEl.style.height = `${n.imgCanvasHeight || 120}px`;
+            containerEl.innerHTML = `<div class="canvas-tip">点击选中图片 (Shift多选/Del删除) | 拖拽四角缩放 | 悬停外侧旋转</div>`;
+            
+            n.images.forEach(img => {
+                const isSelected = selectedMiniImgs.has(img.id);
+                // --- 【双击图片极速预览修复】 ---
+                containerEl.insertAdjacentHTML('beforeend', `
+                <div class="mini-img-wrapper ${isSelected ? 'active-img' : ''}" data-id="${img.id}" style="transform: translate(${img.x}px, ${img.y}px) rotate(${img.rot || 0}deg); z-index: ${img.z || 0}; width: ${img.w}px; height: ${img.h}px;">
+                    <div class="mh-rotate-handle mh-rot-tl"></div><div class="mh-rotate-handle mh-rot-tr"></div>
+                    <div class="mh-rotate-handle mh-rot-bl"></div><div class="mh-rotate-handle mh-rot-br"></div>
+                    <img src="${img.src}" style="width: 100%; height: 100%; object-fit: contain; pointer-events: auto;" draggable="false" ondblclick="event.stopPropagation(); window.openImagePreview(this.src);" ontouchstart="event.stopPropagation(); window.openImagePreview(this.src);">
+                    <div class="mh-resize mh-tl" data-dir="tl"></div><div class="mh-resize mh-tr" data-dir="tr"></div>
+                    <div class="mh-resize mh-bl" data-dir="bl"></div><div class="mh-resize mh-br" data-dir="br"></div>
+                </div>`);
+            });
+            containerEl.insertAdjacentHTML('beforeend', `<div class="canvas-selection-box" id="c-box-${nodeId}"></div>`);
+            gallery.appendChild(containerEl);
+            
+            const resizerEl = document.createElement('div');
+            resizerEl.className = 'image-canvas-resizer';
+            resizerEl.title = '上下拖动调整高度';
+            gallery.appendChild(resizerEl);
+        }
+
+        if (n.videos && n.videos.length > 0) {
+            hasContent = true;
+            const videoListWrapper = document.createElement('div');
+            videoListWrapper.className = 'video-list-container';
+            videoListWrapper.style.height = `${n.vidListHeight || 100}px`;
+
+            n.videos.forEach(vid => {
+                const isBroken = !vid.src.startsWith('blob:') && !vid.src.startsWith('http');
+                const nameColor = isBroken ? '#ef4444' : '#3b82f6';
+                const warningIcon = isBroken ? `<i class="fas fa-exclamation-triangle" style="color:#ef4444; margin-right:4px;" title="本地文件已断开"></i>` : '';
+                
+                const itemEl = document.createElement('div');
+                itemEl.className = 'media-video-item';
+                itemEl.dataset.id = vid.id;
+                itemEl.dataset.src = vid.src;
+                itemEl.innerHTML = `
+                    <div class="video-info" style="display: flex; align-items: center; flex-grow: 1; overflow: hidden; cursor: pointer;">
+                        <i class="fas fa-film" style="color:#64748b; margin-right:6px;"></i>
+                        ${warningIcon}
+                        <span class="video-name" style="color:${nameColor}">${vid.name}</span>
+                    </div>
+                    <div class="video-actions">
+                        <i class="fas fa-link v-btn" title="重新关联本地视频" onmousedown="event.stopPropagation();" onclick="event.stopPropagation(); window.triggerRelinkVid(this, '${nodeId}', '${vid.id}')" ontouchstart="event.stopPropagation(); window.triggerRelinkVid(this, '${nodeId}', '${vid.id}')"></i>
+                        <i class="fas fa-edit v-btn" title="重命名" onmousedown="event.stopPropagation();" onclick="event.stopPropagation(); window.startRenameVid(this, '${nodeId}', '${vid.id}')" ontouchstart="event.stopPropagation(); window.startRenameVid(this, '${nodeId}', '${vid.id}')"></i>
+                        <i class="fas fa-times video-del-btn v-btn" title="删除" onmousedown="event.stopPropagation();" onclick="event.stopPropagation(); window.deleteVid('${nodeId}', '${vid.id}')" ontouchstart="event.stopPropagation(); window.deleteVid('${nodeId}', '${vid.id}')"></i>
+                    </div>
+                `;
+                
+                const playHandler = (e) => {
+                    e.stopPropagation();
+                    const nameSpan = itemEl.querySelector('.video-name');
+                    if (nameSpan.contentEditable === "true") return;
+                    openVideoPreview(vid.src);
+                };
+
+                itemEl.querySelector('.video-info').addEventListener('click', playHandler);
+                itemEl.querySelector('.video-info').addEventListener('touchstart', playHandler);
+                
+                videoListWrapper.appendChild(itemEl);
+            });
+            gallery.appendChild(videoListWrapper);
+            
+            const resizerEl = document.createElement('div');
+            resizerEl.className = 'video-list-resizer';
+            gallery.appendChild(resizerEl);
+        }
+
+        if (hasContent) gallery.classList.add('has-content'); else gallery.classList.remove('has-content');
+    }
+
+    window.deleteVid = function(nodeId, vidId) {
+        const n = nodes[nodeId];
+        if (n) {
+            n.videos = n.videos.filter(v => v.id !== vidId);
+            renderNodeMedia(nodeId);
+        }
+    };
+
+    // --- 【修复重点：重写和复活缺失的 createNode 核心绘制函数体】 ---
+    function createNode(x, y, title = "新场景", content = "", width = 240, height = 200, id = null, themeId = 0, customColor = null, images = [], videos = [], imgCanvasHeight = 120, fontSize = 14, vidListHeight = 100) {
+        const nodeId = id || generateId();
+        
+        // --- 【网格吸附与Photoshop智能边界磁吸融合】 ---
+        if (isGridSnap) {
+            x = Math.round(x / 30) * 30;
+            y = Math.round(y / 30) * 30;
+        }
+
+        nodes[nodeId] = { x, y, w: width, h: height, title, content, images: images||[], videos: videos||[], imgCanvasHeight, themeId, customColor, fontSize, vidListHeight };
+
+        const nodeEl = document.createElement('div'); nodeEl.className = 'node'; nodeEl.id = nodeId;
+        nodeEl.style.left = `${x}px`; nodeEl.style.top = `${y}px`; nodeEl.style.width = `${width}px`; nodeEl.style.height = `${height}px`;
+
+        nodeEl.innerHTML = `
+            <div class="node-header"><input class="node-title" value="${title}"><div class="node-header-actions"><div class="node-delete-btn"><i class="fas fa-times"></i></div></div></div>
+            <div class="node-content">
+                <div class="media-gallery"></div>
+                <textarea class="node-textarea" placeholder="在此输入分支剧情描述..." style="font-size: ${fontSize}px;">${content}</textarea>
+                <div class="node-media-controls">
+                    <div class="node-btn btn-add-img" title="插入图片"><i class="fas fa-image"></i></div>
+                    <div class="node-btn btn-add-vid" title="插入视频"><i class="fas fa-film"></i></div>
+                    <div class="node-btn btn-font-minus" title="缩小字体">A-</div>
+                    <div class="node-btn btn-font-plus" title="放大字体">A+</div>
+                </div>
+            </div>
+            <div class="resize-handle"></div>
+            <!-- 为节点增加高精隐形拉线热区，大面积操作不穿透 -->
+            <div class="node-touch-port" title="双击并按住拖拉出连接线"></div>
+        `;
+        nodesContainer.appendChild(nodeEl);
+        applyNodeColor(nodeId, themeId, customColor); renderNodeMedia(nodeId); bindNodeEvents(nodeEl, nodeId); return nodeId;
+    }
+
+    function applyNodeColor(nodeId, themeId, customColor = null) {
+        if (!nodes[nodeId]) return; nodes[nodeId].themeId = themeId; nodes[nodeId].customColor = customColor;
+        const nodeEl = document.getElementById(nodeId); if (!nodeEl) return;
+        const headerEl = nodeEl.querySelector('.node-header');
+        
+        let color = '#2d2d2d'; 
+        if (isLightMode) color = '#ffffff';
+
+        if (customColor) { 
+            color = customColor;
+            nodeEl.style.backgroundColor = customColor; 
+            nodeEl.style.borderColor = customColor; 
+            if (headerEl) headerEl.style.backgroundColor = customColor; 
+        } 
+        else if (themeId !== 0) { 
+            const theme = nodeThemes[themeId]; 
+            color = theme.bg;
+            nodeEl.style.backgroundColor = theme.bg; 
+            nodeEl.style.borderColor = theme.border; 
+            if (headerEl) headerEl.style.backgroundColor = theme.header; 
+        } 
+        else { 
+            nodeEl.style.backgroundColor = ''; 
+            nodeEl.style.borderColor = ''; 
+            if (headerEl) headerEl.style.backgroundColor = ''; 
+        }
+        // --- 【核心重构：注入局部 CSS 变量，供 LOD 圆点渲染精准承接色彩】 ---
+        nodeEl.style.setProperty('--node-color', color); 
+    }
+
+    window.startRenameVid = function(btn, nodeId, vidId) {
+        const item = btn.closest('.media-video-item'); const nameSpan = item.querySelector('.video-name');
+        nameSpan.contentEditable = true; nameSpan.focus();
+        const range = document.createRange(); range.selectNodeContents(nameSpan);
+        const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+        const finishEdit = () => {
+            nameSpan.contentEditable = false; const n = nodes[nodeId];
+            if (n) { const vid = n.videos.find(v => v.id === vidId); if (vid) { vid.name = nameSpan.textContent.trim() || "未命名"; nameSpan.textContent = vid.name; } }
+            nameSpan.removeEventListener('blur', finishEdit);
+        };
+        nameSpan.addEventListener('blur', finishEdit);
+        nameSpan.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); nameSpan.blur(); } };
+    };
+
+    window.triggerRelinkVid = function(btn, nodeId, vidId) {
+        window.relinkData = { nodeId, vidId };
+        document.getElementById('relink-video-input').click();
+    };
+
+    document.getElementById('relink-video-input').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (file && window.relinkData) {
+            const n = nodes[window.relinkData.nodeId];
+            if (n) {
+                const vid = n.videos.find(v => v.id === window.relinkData.vidId);
+                if (vid) { vid.src = URL.createObjectURL(file); renderNodeMedia(window.relinkData.nodeId); }
+            }
+        }
+        this.value = '';
+    });
+
+    document.getElementById('directory-input').addEventListener('change', function(e) {
+        const files = Array.from(e.target.files);
+        if (files.length === 0) return;
+        
+        const fileMap = {};
+        files.forEach(file => {
+            if(file.type.startsWith('video/')) {
+                fileMap[file.name] = URL.createObjectURL(file);
+            }
+        });
+
+        let matchedCount = 0;
+        Object.keys(nodes).forEach(nodeId => {
+            const n = nodes[nodeId];
+            let changed = false;
+            n.videos.forEach(vid => {
+                const searchName = vid.originalName || vid.name;
+                if (fileMap[searchName]) {
+                    vid.src = fileMap[searchName];
+                    changed = true;
+                    matchedCount++;
+                }
+            });
+            if (changed) renderNodeMedia(nodeId);
+        });
+
+        alert(`扫描完毕！成功自动接通并恢复了 ${matchedCount} 个失效的视频节点线路。`);
+        this.value = '';
+    });
+
+    function handleDroppedFiles(files, nodeId, isOverCanvas, mouseX, mouseY, canvasRect) {
+        const n = nodes[nodeId];
+        Array.from(files).forEach(file => {
+            if (file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const tempImg = new Image();
+                    tempImg.onload = () => {
+                        let initW = tempImg.width, initH = tempImg.height;
+                        if (initW > 120) { initH = (120 / initW) * initH; initW = 120; }
+                        let localX = 10, localY = 10;
+                        if (isOverCanvas && canvasRect) {
+                            localX = (mouseX - canvasRect.left) / scale - (initW/2);
+                            localY = (mouseY - canvasRect.top) / scale - (initH/2);
+                        } else {
+                            localX = 10 + (n.images.length * 15) % 100;
+                            localY = 10 + (n.images.length * 15) % 100;
+                        }
+                        n.images.push({id: generateId(), src: e.target.result, x: Math.max(0,localX), y: Math.max(0,localY), w: initW, h: initH, rot: 0, z: n.images.length});
+                        renderNodeMedia(nodeId);
+                    };
+                    tempImg.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            } else if (file.type.startsWith('video/')) {
+                n.videos.push({id: generateId(), name: file.name, originalName: file.name, src: URL.createObjectURL(file)});
+                renderNodeMedia(nodeId);
+            }
+        });
+    }
+
+    function bindNodeEvents(nodeEl, nodeId) {
+        const titleEl = nodeEl.querySelector('.node-title'); const contentEl = nodeEl.querySelector('.node-textarea');
+        titleEl.addEventListener('input', () => { nodes[nodeId].title = titleEl.value; });
+        contentEl.addEventListener('input', () => { nodes[nodeId].content = contentEl.value; });
+        nodeEl.querySelector('.node-delete-btn').addEventListener('click', (e) => { e.stopPropagation(); selectedNodes.add(nodeId); deleteSelectedNodes(); });
+
+        nodeEl.querySelector('.btn-font-minus').addEventListener('click', (e) => { e.stopPropagation(); const n = nodes[nodeId]; n.fontSize = Math.max(10, (n.fontSize || 14) - 2); contentEl.style.fontSize = `${n.fontSize}px`; });
+        nodeEl.querySelector('.btn-font-plus').addEventListener('click', (e) => { e.stopPropagation(); const n = nodes[nodeId]; n.fontSize = Math.min(48, (n.fontSize || 14) + 2); contentEl.style.fontSize = `${n.fontSize}px`; });
+
+        nodeEl.querySelector('.resize-handle').addEventListener('mousedown', (e) => {
+            if (isScissorsMode) return; e.stopPropagation(); setGlobalSelect(true);
+            let startW = nodes[nodeId].w, startH = nodes[nodeId].h, startX = e.clientX, startY = e.clientY;
+            const doResize = (em) => {
+                nodes[nodeId].w = Math.max(200, startW + (em.clientX - startX) / scale); nodes[nodeId].h = Math.max(150, startH + (em.clientY - startY) / scale);
+                nodeEl.style.width = `${nodes[nodeId].w}px`; nodeEl.style.height = `${nodes[nodeId].h}px`; drawAllLines();
+            };
+            const stopResize = () => { setGlobalSelect(false); window.removeEventListener('mousemove', doResize); window.removeEventListener('mouseup', stopResize); };
+            window.addEventListener('mousemove', doResize); window.addEventListener('mouseup', stopResize);
+        });
+
+        nodeEl.querySelector('.btn-add-img').addEventListener('click', (e) => { e.stopPropagation(); window.activeMediaNode = nodeId; document.getElementById('image-upload-input').click(); });
+        nodeEl.querySelector('.btn-add-vid').addEventListener('click', (e) => { e.stopPropagation(); window.activeMediaNode = nodeId; document.getElementById('video-upload-input').click(); });
+
+        // --- 【安全重构】：隐形拉线热区事件绑定，精准拦截单击，强制双击拖拽 ---
+        const touchPort = nodeEl.querySelector('.node-touch-port');
+        let portTapTime = 0;
+        let portTapX = 0;
+        let portTapY = 0;
+
+        touchPort.addEventListener('touchstart', (e) => {
+            if (isScissorsMode || e.touches.length !== 1) return;
+            e.preventDefault(); e.stopPropagation(); // 阻止事件穿透及背景新建
+
+            const touch = e.touches[0];
+            const now = Date.now();
+            
+            // 必须是 $350ms$ 内的快速双击
+            const isDoubleTapPort = (portTapX && Math.hypot(touch.clientX - portTapX, touch.clientY - portTapY) < 30 && now - portTapTime < 350);
+
+            if (isDoubleTapPort) {
+                // 双击第二次按下：激活拉线模式！
+                isConnecting = true;
+                isDraggingNode = false; 
+                isPanning = false;
+                connectStartNodeId = nodeId;
+                tempLineEnd = screenToWorkspace(touch.clientX, touch.clientY);
+                drawAllLines();
+                portTapX = null; // 重置双击判定
+            } else {
+                // 第一次按下，仅记录坐标时间。
+                // 触屏端单击隐形区域不应该唤醒任何高亮，直接冒泡充当“点击空白背景”
+                portTapTime = now;
+                portTapX = touch.clientX;
+                portTapY = touch.clientY;
+            }
+        }, { passive: false });
+
+        nodeEl.addEventListener('dragover', (e) => {
+            e.preventDefault(); e.stopPropagation();
+            if (e.dataTransfer) { e.dataTransfer.dropEffect = 'copy'; }
+            const canvas = nodeEl.querySelector('.image-canvas-container');
+            if (canvas) {
+                const rect = canvas.getBoundingClientRect();
+                const isOver = e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
+                if (isOver) { canvas.classList.add('drag-over-canvas'); nodeEl.classList.remove('drop-target'); }
+                else { nodeEl.classList.add('drop-target'); canvas.classList.remove('drag-over-canvas'); }
+            } else nodeEl.classList.add('drop-target');
+        });
+        nodeEl.addEventListener('dragleave', (e) => { e.preventDefault(); e.stopPropagation(); nodeEl.classList.remove('drop-target'); const canvas = nodeEl.querySelector('.image-canvas-container'); if(canvas) canvas.classList.remove('drag-over-canvas'); });
+        nodeEl.addEventListener('drop', (e) => {
+            e.preventDefault(); e.stopPropagation(); nodeEl.classList.remove('drop-target'); const canvas = nodeEl.querySelector('.image-canvas-container');
+            let isOver = false, rect = null;
+            if (canvas) { canvas.classList.remove('drag-over-canvas'); rect = canvas.getBoundingClientRect(); isOver = e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom; }
+            if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) handleDroppedFiles(e.dataTransfer.files, nodeId, isOver, e.clientX, e.clientY, rect);
+        });
+
+        const gallery = nodeEl.querySelector('.media-gallery');
+        
+        gallery.addEventListener('mousedown', (e) => {
+            if (isScissorsMode || e.button !== 0 || e.target.closest('.video-name') || e.target.closest('.video-actions')) return;
+            
+            if (e.target.closest('.video-list-resizer')) {
+                e.stopPropagation(); setGlobalSelect(true);
+                isResizingVidList = true; resizeVidListNodeId = nodeId; resizeVidListStartY = e.clientY;
+                resizeVidListStartH = nodes[nodeId].vidListHeight || 100;
+                document.body.style.cursor = 'ns-resize';
+                return;
+            }
+
+            const container = e.target.closest('.image-canvas-container');
+            if (container) {
+                if (e.target === container) {
+                    e.stopPropagation(); setGlobalSelect(true);
+                    selectedMiniImgs.clear(); activeCanvasNodeId = nodeId;
+                    document.querySelectorAll('.mini-img-wrapper').forEach(w => w.classList.remove('active-img'));
+                    
+                    isCanvasSelecting = true;
+                    const rect = container.getBoundingClientRect();
+                    canvasSelectionStartX = (e.clientX - rect.left) / scale;
+                    canvasSelectionStartY = (e.clientY - rect.top) / scale;
+                    
+                    const cBox = document.getElementById(`c-box-${nodeId}`);
+                    if(cBox) {
+                        cBox.style.left = canvasSelectionStartX + 'px'; cBox.style.top = canvasSelectionStartY + 'px';
+                        cBox.style.width = '0px'; cBox.style.height = '0px';
+                        cBox.style.display = 'block';
+                    }
+                    return;
+                }
+
+                const wrapper = e.target.closest('.mini-img-wrapper');
+                if (!wrapper) return;
+
+                e.stopPropagation(); setGlobalSelect(true);
+                const imgId = wrapper.dataset.id; activeCanvasNodeId = nodeId;
+                
+                if (!e.shiftKey && !selectedMiniImgs.has(imgId)) { selectedMiniImgs.clear(); }
+                selectedMiniImgs.add(imgId);
+                
+                document.querySelectorAll('.mini-img-wrapper').forEach(w => w.classList.remove('active-img'));
+                selectedMiniImgs.forEach(id => {
+                    const el = document.querySelector(`#${nodeId} .mini-img-wrapper[data-id="${id}"]`);
+                    if (el) el.classList.add('active-img');
+                });
+
+                miniImgStartData = {};
+                selectedMiniImgs.forEach(id => {
+                    const img = nodes[nodeId].images.find(i => i.id === id);
+                    miniImgStartData[id] = { x: img.x, y: img.y, w: img.w, h: img.h, rot: img.rot || 0, ratio: img.w / img.h };
+                });
+                
+                miniImgStartX = e.clientX / scale; miniImgStartY = e.clientY / scale;
+
+                if (e.target.classList.contains('mh-resize')) {
+                    isResizingMiniImg = true; activeResizeDir = e.target.dataset.dir; 
+                    document.body.style.cursor = 'nwse-resize';
+                } else if (e.target.classList.contains('mh-rotate-handle')) {
+                    isRotatingMiniImg = true;
+                    const rect = wrapper.getBoundingClientRect();
+                    rotateCenterScreenX = rect.left + rect.width / 2; rotateCenterScreenY = rect.top + rect.height / 2;
+                    startMouseAngle = Math.atan2(e.clientY - rotateCenterScreenY, e.clientX - rotateCenterScreenX) * 180 / Math.PI;
+                    document.body.style.cursor = 'crosshair';
+                } else if (e.target.tagName === 'IMG') {
+                    let maxZ = Math.max(0, ...nodes[nodeId].images.map(i => i.z || 0));
+                    selectedMiniImgs.forEach(id => {
+                        const img = nodes[nodeId].images.find(i => i.id === id);
+                        img.z = ++maxZ;
+                        const el = document.querySelector(`#${nodeId} .mini-img-wrapper[data-id="${id}"]`);
+                        if(el) el.style.zIndex = img.z;
+                    });
+                    isDraggingMiniImg = true; document.body.style.cursor = 'grabbing';
+                }
+                return;
+            }
+
+            if (e.target.closest('.image-canvas-resizer')) {
+                e.stopPropagation(); setGlobalSelect(true);
+                isResizingCanvas = true; resizeCanvasNodeId = nodeId; resizeCanvasStartY = e.clientY;
+                resizeCanvasStartH = nodes[nodeId].imgCanvasHeight || 120;
+                document.body.style.cursor = 'ns-resize';
+            }
+        });
+
+        // --- 【全面适配小画布、列表上下 Resizer 杆的 iPad / 手机高优先触控拉伸】 ---
+        gallery.addEventListener('touchstart', (e) => {
+            if (isScissorsMode || e.touches.length !== 1) return;
+            const target = e.target;
+            
+            // 1. 视频列表高度拖拽上下杆
+            if (target.closest('.video-list-resizer')) {
+                e.preventDefault(); e.stopPropagation(); setGlobalSelect(true);
+                isResizingVidListTouch = true;
+                touchResizeVidListNodeId = nodeId;
+                touchResizeVidListStartY = e.touches[0].clientY;
+                touchResizeVidListStartH = nodes[nodeId].vidListHeight || 100;
+                return;
+            }
+            
+            // 2. 小图片画布高度拖拽上下杆
+            if (target.closest('.image-canvas-resizer')) {
+                e.preventDefault(); e.stopPropagation(); setGlobalSelect(true);
+                isResizingCanvasTouch = true;
+                touchResizeCanvasNodeId = nodeId;
+                touchResizeCanvasStartY = e.touches[0].clientY;
+                touchResizeCanvasStartH = nodes[nodeId].imgCanvasHeight || 120;
+                return;
+            }
+        }, { passive: false });
+    }
+
+    // 平移区域判定
+    function isBackgroundEvent(e) { 
+        return !e.target.closest('.node') && 
+               !e.target.closest('#toolbar') && 
+               !e.target.closest('#media-preview-modal') && 
+               !e.target.closest('.connection-hitbox') &&
+               !e.target.closest('#left-toolbar'); 
+    }
+
+    // --- 【复制与克隆节点的底抽象函数接口】 ---
+    function performCopySelectedNodes() {
+        if (selectedNodes.size === 0) return;
+        const clipboard = [];
+        selectedNodes.forEach(id => {
+            const n = nodes[id];
+            if (n) {
+                clipboard.push({
+                    originalId: id,
+                    x: n.x,
+                    y: n.y,
+                    w: n.w,
+                    h: n.h,
+                    title: n.title,
+                    content: n.content,
+                    themeId: n.themeId,
+                    customColor: n.customColor,
+                    fontSize: n.fontSize || 14,
+                    imgCanvasHeight: n.imgCanvasHeight || 120,
+                    vidListHeight: n.vidListHeight || 100,
+                    images: JSON.parse(JSON.stringify(n.images || [])),
+                    videos: JSON.parse(JSON.stringify(n.videos || []))
+                });
+            }
+        });
+        copiedNodesClipboard = clipboard;
+    }
+
+    function performPasteNodes(offsetAmount = 30) {
+        if (!copiedNodesClipboard || copiedNodesClipboard.length === 0) return;
+        
+        const newIdsMap = {}; 
+        const pastedIds = [];
+
+        copiedNodesClipboard.forEach(item => {
+            const newId = generateId();
+            newIdsMap[item.originalId] = newId;
+
+            const pastedImgs = (item.images || []).map(img => {
+                return { ...img, id: generateId() };
+            });
+            const pastedVids = (item.videos || []).map(vid => {
+                return { ...vid, id: generateId() };
+            });
+
+            createNode(
+                item.x + offsetAmount, 
+                item.y + offsetAmount, 
+                item.title + " (复本)", 
+                item.content, 
+                item.w, 
+                item.h, 
+                newId, 
+                item.themeId, 
+                item.customColor, 
+                pastedImgs, 
+                pastedVids, 
+                item.imgCanvasHeight,
+                item.fontSize,
+                item.vidListHeight
+            );
+            pastedIds.push(newId);
+        });
+
+        connections.forEach(conn => {
+            if (newIdsMap[conn.from] && newIdsMap[conn.to]) {
+                connections.push({
+                    from: newIdsMap[conn.from],
+                    to: newIdsMap[conn.to]
+                });
+            }
+        });
+
+        clearSelection();
+        pastedIds.forEach(id => selectedNodes.add(id));
+        updateSelectionVisuals();
+        drawAllLines();
+
+        copiedNodesClipboard.forEach(item => {
+            item.x += offsetAmount;
+            item.y += offsetAmount;
+        });
+    }
+
+    // --- 【Photoshop 级多维度智能磁吸对齐坐标判定】 ---
+    function getSmartSnapCoords(id, targetX, targetY) {
+        let snapX = null;
+        let snapY = null;
+        const snapThreshold = 15; 
+        const currentW = nodes[id].w;
+        const currentH = nodes[id].h;
+
+        const cLeft = targetX;
+        const cRight = targetX + currentW;
+        const cCenterX = targetX + currentW / 2;
+        
+        const cTop = targetY;
+        const cBottom = targetY + currentH;
+        const cCenterY = targetY + currentH / 2;
+
+        let guidelines = []; 
+
+        for (let otherId in nodes) {
+            if (otherId === id || selectedNodes.has(otherId)) continue;
+            const o = nodes[otherId];
+            const oLeft = o.x;
+            const oRight = o.x + o.w;
+            const oCenterX = o.x + o.w / 2;
+            
+            const oTop = o.y;
+            const oBottom = o.y + o.h;
+            const oCenterY = o.y + o.h / 2;
+
+            // 横向对齐判定 (垂直辅助线)
+            if (snapX === null) {
+                if (Math.abs(cLeft - oLeft) < snapThreshold) {
+                    snapX = oLeft;
+                    guidelines.push({ type: 'v', val: oLeft, min: Math.min(cTop, oTop), max: Math.max(cBottom, oBottom) });
+                }
+                else if (Math.abs(cLeft - oRight) < snapThreshold) {
+                    snapX = oRight;
+                    guidelines.push({ type: 'v', val: oRight, min: Math.min(cTop, oTop), max: Math.max(cBottom, oBottom) });
+                }
+                else if (Math.abs(cRight - oLeft) < snapThreshold) {
+                    snapX = oLeft - currentW;
+                    guidelines.push({ type: 'v', val: oLeft, min: Math.min(cTop, oTop), max: Math.max(cBottom, oBottom) });
+                }
+                else if (Math.abs(cRight - oRight) < snapThreshold) {
+                    snapX = oRight - currentW;
+                    guidelines.push({ type: 'v', val: oRight, min: Math.min(cTop, oTop), max: Math.max(cBottom, oBottom) });
+                }
+                else if (Math.abs(cCenterX - oCenterX) < snapThreshold) {
+                    snapX = oCenterX - currentW / 2;
+                    guidelines.push({ type: 'v', val: oCenterX, min: Math.min(cTop, oTop), max: Math.max(cBottom, oBottom) });
+                }
+            }
+
+            // 纵向对齐判定 (水平辅助线)
+            if (snapY === null) {
+                if (Math.abs(cTop - oTop) < snapThreshold) {
+                    snapY = oTop;
+                    guidelines.push({ type: 'h', val: oTop, min: Math.min(cLeft, oLeft), max: Math.max(cRight, oRight) });
+                }
+                else if (Math.abs(cTop - oBottom) < snapThreshold) {
+                    snapY = oBottom;
+                    guidelines.push({ type: 'h', val: oBottom, min: Math.min(cLeft, oLeft), max: Math.max(cRight, oRight) });
+                }
+                else if (Math.abs(cBottom - oTop) < snapThreshold) {
+                    snapY = oTop - currentH;
+                    guidelines.push({ type: 'h', val: oTop, min: Math.min(cLeft, oLeft), max: Math.max(cRight, oRight) });
+                }
+                else if (Math.abs(cBottom - oBottom) < snapThreshold) {
+                    snapY = oBottom - currentH;
+                    guidelines.push({ type: 'h', val: oBottom, min: Math.min(cLeft, oLeft), max: Math.max(cRight, oRight) });
+                }
+                else if (Math.abs(cCenterY - oCenterY) < snapThreshold) {
+                    snapY = oCenterY - currentH / 2;
+                    guidelines.push({ type: 'h', val: oCenterY, min: Math.min(cLeft, oLeft), max: Math.max(cRight, oRight) });
+                }
+            }
+        }
+
+        return {
+            x: snapX !== null ? snapX : targetX,
+            y: snapY !== null ? snapY : targetY,
+            lines: guidelines
+        };
+    }
+
+    // --- 【Photoshop 智能辅助引导线绘制】 ---
+    function drawSnapGuidelines(lines) {
+        if (!lines || lines.length === 0) {
+            svgGuidelines.innerHTML = '';
+            return;
+        }
+        let html = '';
+        lines.forEach(line => {
+            const padding = 80; 
+            const min = line.min - padding;
+            const max = line.max + padding;
+
+            if (line.type === 'h') {
+                html += `<line x1="${min}" y1="${line.val}" x2="${max}" y2="${line.val}" stroke="#d946ef" stroke-width="1.5" stroke-dasharray="5,5" />`;
+            } else {
+                html += `<line x1="${line.val}" y1="${min}" x2="${line.val}" y2="${max}" stroke="#d946ef" stroke-width="1.5" stroke-dasharray="5,5" />`;
+            }
+        });
+        svgGuidelines.innerHTML = html;
+    }
+
+    function clearSnapGuidelines() {
+        svgGuidelines.innerHTML = '';
+    }
+
+    // --- 【画布边缘检测与全自动推移平移系统】 ---
+    function checkEdgeScroll(clientX, clientY) {
+        const threshold = 50; 
+        const speed = 10; 
+        const rect = workspaceContainer.getBoundingClientRect();
+        
+        edgeScrollSpeedX = 0;
+        edgeScrollSpeedY = 0;
+
+        if (isDraggingNode || isConnecting) {
+            if (clientX < rect.left + threshold) {
+                edgeScrollSpeedX = speed;
+            } else if (clientX > rect.right - threshold) {
+                edgeScrollSpeedX = -speed;
+            }
+
+            if (clientY < rect.top + threshold) {
+                edgeScrollSpeedY = speed;
+            } else if (clientY > rect.bottom - threshold) {
+                edgeScrollSpeedY = -speed;
+            }
+        }
+
+        if (edgeScrollSpeedX !== 0 || edgeScrollSpeedY !== 0) {
+            if (!edgeScrollInterval) {
+                edgeScrollInterval = requestAnimationFrame(updateEdgeScroll);
+            }
+        } else {
+            if (edgeScrollInterval) {
+                cancelAnimationFrame(edgeScrollInterval);
+                edgeScrollInterval = null;
+            }
+        }
+    }
+
+    function updateEdgeScroll() {
+        if (!isDraggingNode && !isConnecting) {
+            edgeScrollInterval = null;
+            clearSnapGuidelines();
+            return;
+        }
+
+        panX += edgeScrollSpeedX;
+        panY += edgeScrollSpeedY;
+        updateWorkspaceTransform();
+        
+        if (isDraggingNode) {
+            dragStartMouseX += edgeScrollSpeedX;
+            dragStartMouseY += edgeScrollSpeedY;
+            // 滚动更新时不附带原生 e
+            triggerNodeDragUpdate(null);
+        }
+        if (isConnecting) {
+            tempLineEnd = screenToWorkspace(lastX, lastY);
+            drawAllLines();
+        }
+
+        edgeScrollInterval = requestAnimationFrame(updateEdgeScroll);
+    }
+
+    // --- 【高阶：重构函数接受原生事件 e，使 Alt 克隆完美捕获】 ---
+    function triggerNodeDragUpdate(e) {
+        const dx = (lastX - dragStartMouseX) / scale, dy = (lastY - dragStartMouseY) / scale;
+        
+        // --- 【按住 Alt 拖动克隆实时生成判定】 ---
+        if (e && e.altKey && !altDraggingCopied) {
+            altDraggingCopied = true;
+            performPasteNodes(0); // 瞬间就地物理克隆
+            
+            // 将拖动初始位置转移给新的复制集
+            draggedNodesInitialPositions = {};
+            selectedNodes.forEach(id => {
+                if (nodes[id]) draggedNodesInitialPositions[id] = { x: nodes[id].x, y: nodes[id].y };
+            });
+        }
+
+        selectedNodes.forEach(id => {
+            if(draggedNodesInitialPositions[id]) {
+                let targetX = draggedNodesInitialPositions[id].x + dx;
+                let targetY = draggedNodesInitialPositions[id].y + dy;
+                
+                if (isGridSnap) {
+                    const snapResult = getSmartSnapCoords(id, targetX, targetY);
+                    targetX = snapResult.x;
+                    targetY = snapResult.y;
+                    drawSnapGuidelines(snapResult.lines);
+                } else {
+                    clearSnapGuidelines();
+                }
+
+                nodes[id].x = targetX; nodes[id].y = targetY;
+                const el = document.getElementById(id); 
+                if (el) {
+                    el.style.left = `${nodes[id].x}px`; el.style.top = `${nodes[id].y}px`;
+                }
+            }
+        });
+        drawAllLines();
+    }
+
+    // --- 【全新的iPad/触屏设备高阶Touch事件深度适配逻辑】 ---
+    workspaceContainer.addEventListener('touchstart', (e) => {
+        // 先检查是否处于触控模式
+        if (!isTouchMode) return;
+
+        // 1. 三指双击切换剪刀工具判定
+        if (e.touches.length === 3) {
+            e.preventDefault();
+            let now = Date.now();
+            if (now - lastThreeFingerTapTime < 400) {
+                threeFingerTapCount++;
+                if (threeFingerTapCount >= 1) {
+                    // 切换剪刀模式
+                    isScissorsMode = !isScissorsMode;
+                    if (isScissorsMode) {
+                        document.body.classList.add('scissors-mode');
+                        document.getElementById('sb-default').style.display = 'none';
+                        document.getElementById('sb-scissors').style.display = 'inline';
+                    } else {
+                        document.body.classList.remove('scissors-mode');
+                        document.getElementById('sb-default').style.display = 'inline';
+                        document.getElementById('sb-scissors').style.display = 'none';
+                        cutPath = []; drawCutPath();
+                    }
+                    threeFingerTapCount = 0;
+                }
+            } else {
+                threeFingerTapCount = 0;
+            }
+            lastThreeFingerTapTime = now;
+            return;
+        }
+
+        // 2. 双指张合捏放控制画布缩放 (Pinch-to-zoom)
+        if (e.touches.length === 2) {
+            e.preventDefault();
+            const t1 = e.touches[0];
+            const t2 = e.touches[1];
+            touchStartDist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+            touchStartScale = scale;
+            
+            const rect = workspaceContainer.getBoundingClientRect();
+            const centerX = (t1.clientX + t2.clientX) / 2 - rect.left;
+            const centerY = (t1.clientY + t2.clientY) / 2 - rect.top;
+            touchStartCenter = {
+                x: (centerX - panX) / scale,
+                y: (centerY - panY) / scale,
+                screenX: centerX,
+                screenY: centerY
+            };
+            return;
+        }
+
+        // 3. 单指手势判定
+        if (e.touches.length === 1) {
+            const touch = e.touches[0];
+            activeTouchId = touch.identifier;
+            
+            const targetEl = e.target;
+            const nodeEl = targetEl.closest('.node');
+            const workspacePos = screenToWorkspace(touch.clientX, touch.clientY);
+
+            // --- 【高精度单指触摸右下角拉伸缩把手拦截】 ---
+            const resizeHandle = targetEl.closest('.resize-handle');
+            if (resizeHandle) {
+                e.preventDefault(); e.stopPropagation();
+                isResizingNodeTouch = true;
+                const parentNode = resizeHandle.closest('.node');
+                resizeNodeTouchId = parentNode.id;
+                resizeStartW = nodes[resizeNodeTouchId].w;
+                resizeStartH = nodes[resizeNodeTouchId].h;
+                resizeStartX = touch.clientX;
+                resizeStartY = touch.clientY;
+                return;
+            }
+
+            // 如果点击在节点上
+            if (nodeEl) {
+                // 排除各种子输入框、按钮、把手的普通触控干涉
+                if (targetEl.closest('.node-content > *') || targetEl.closest('.node-title') || targetEl.closest('.node-header-actions') || targetEl.closest('.resize-handle')) {
+                    return; 
+                }
+                
+                // 普通单指点中并拖拽节点排版
+                setGlobalSelect(true);
+                nodesContainer.appendChild(nodeEl);
+                if (!selectedNodes.has(nodeEl.id)) {
+                    clearSelection();
+                    selectedNodes.add(nodeEl.id);
+                }
+                updateSelectionVisuals();
+                isDraggingNode = true;
+                dragStartMouseX = touch.clientX;
+                dragStartMouseY = touch.clientY;
+                draggedNodesInitialPositions = {};
+                selectedNodes.forEach(id => {
+                    if (nodes[id]) draggedNodesInitialPositions[id] = { x: nodes[id].x, y: nodes[id].y };
+                });
+                return;
+            }
+
+            // 如果点击在空白背景处
+            if (isBackgroundEvent(e)) {
+                let now = Date.now();
+                // 3b. 双击手势决策锁建立 (Double-click Decision)
+                // 不再立刻创建节点，在 touchmove 阶段中如果发生拖动则直接重置并转到“框选/平移”，抬起时无拖动才触发“创建/复制”
+                let isDoubleTap = (lastTapX && Math.hypot(touch.clientX - lastTapX, touch.clientY - lastTapY) < 20 && now - lastTapTime < 350);
+                
+                if (isDoubleTap) {
+                    doubleTapPending = true;
+                    doubleTapWorkspacePos = workspacePos;
+                } else {
+                    doubleTapPending = false;
+                    
+                    // --- 【新需求修复】：单点击空白背景直接取消所有选择，且在取消之前，如果本来有选中节点，将其记录在 cloneSourceOnTouch 中以备双击复制
+                    if (selectedNodes.size > 0) {
+                        cloneSourceOnTouch = [];
+                        selectedNodes.forEach(id => {
+                            const n = nodes[id];
+                            if (n) {
+                                cloneSourceOnTouch.push({
+                                    originalId: id,
+                                    x: n.x,
+                                    y: n.y,
+                                    w: n.w,
+                                    h: n.h,
+                                    title: n.title,
+                                    content: n.content,
+                                    themeId: n.themeId,
+                                    customColor: n.customColor,
+                                    fontSize: n.fontSize || 14,
+                                    imgCanvasHeight: n.imgCanvasHeight || 120,
+                                    vidListHeight: n.vidListHeight || 100,
+                                    images: JSON.parse(JSON.stringify(n.images || [])),
+                                    videos: JSON.parse(JSON.stringify(n.videos || []))
+                                });
+                            }
+                        });
+                    } else {
+                        cloneSourceOnTouch = null;
+                    }
+
+                    clearSelection();
+                    selectedLineIndices.clear();
+                    drawAllLines();
+
+                    if (isPanMode) {
+                        isPanning = true;
+                        startPanX = touch.clientX - panX;
+                        startPanY = touch.clientY - panY;
+                        document.body.classList.add('grabbing');
+                    }
+                }
+
+                lastX = touch.clientX;
+                lastY = touch.clientY;
+                lastTapTime = now;
+                lastTapX = touch.clientX;
+                lastTapY = touch.clientY;
+            }
+        }
+    }, { passive: false });
+
+    workspaceContainer.addEventListener('touchmove', (e) => {
+        if (!isTouchMode) return;
+
+        // 双指缩放移动
+        if (e.touches.length === 2 && touchStartCenter) {
+            e.preventDefault();
+            const t1 = e.touches[0];
+            const t2 = e.touches[1];
+            
+            const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+            let factor = dist / touchStartDist;
+            let ns = Math.max(0.02, Math.min(touchStartScale * factor, 4));
+            
+            const currentCenterX = (t1.clientX + t2.clientX) / 2 - workspaceContainer.getBoundingClientRect().left;
+            const currentCenterY = (t1.clientY + t2.clientY) / 2 - workspaceContainer.getBoundingClientRect().top;
+
+            scale = ns;
+            panX = currentCenterX - touchStartCenter.x * scale;
+            panY = currentCenterY - touchStartCenter.y * scale;
+            updateWorkspaceTransform();
+            return;
+        }
+
+        // 单指手势跟手动量更新
+        if (e.touches.length === 1 && activeTouchId !== null) {
+            const touch = Array.from(e.touches).find(t => t.identifier === activeTouchId);
+            if (!touch) return;
+
+            // --- 【高精度单指触摸右下角拉伸缩把手处理】 ---
+            if (isResizingNodeTouch && resizeNodeTouchId) {
+                e.preventDefault();
+                const dx = (touch.clientX - resizeStartX) / scale;
+                const dy = (touch.clientY - resizeStartY) / scale;
+                nodes[resizeNodeTouchId].w = Math.max(200, resizeStartW + dx);
+                nodes[resizeNodeTouchId].h = Math.max(150, resizeStartH + dy);
+                const el = document.getElementById(resizeNodeTouchId);
+                if (el) {
+                    el.style.width = `${nodes[resizeNodeTouchId].w}px`;
+                    el.style.height = `${nodes[resizeNodeTouchId].h}px`;
+                }
+                drawAllLines();
+                return;
+            }
+
+            // --- 【重点修复】：打通小画布与视频列表高度触控拉伸
+            if (isResizingCanvasTouch && touchResizeCanvasNodeId) {
+                e.preventDefault();
+                const dy = (touch.clientY - touchResizeCanvasStartY) / scale;
+                const nh = Math.max(60, touchResizeCanvasStartH + dy);
+                nodes[touchResizeCanvasNodeId].imgCanvasHeight = nh;
+                const el = document.querySelector(`#${touchResizeCanvasNodeId} .image-canvas-container`);
+                if (el) el.style.height = `${nh}px`;
+                drawAllLines();
+                return;
+            }
+
+            if (isResizingVidListTouch && touchResizeVidListNodeId) {
+                e.preventDefault();
+                const dy = (touch.clientY - touchResizeVidListStartY) / scale;
+                const nh = Math.max(40, touchResizeVidListStartH + dy);
+                nodes[touchResizeVidListNodeId].vidListHeight = nh;
+                const el = document.querySelector(`#${touchResizeVidListNodeId} .video-list-container`);
+                if (el) el.style.height = `${nh}px`;
+                drawAllLines();
+                return;
+            }
+
+            // --- 【一划即切，剪刀斩线路径高保真跟手对齐渲染】 ---
+            if (isScissorsMode) {
+                e.preventDefault();
+                const mouseWorkspace = screenToWorkspace(touch.clientX, touch.clientY);
+                if (!isCutting) {
+                    isCutting = true;
+                    cutPath = [mouseWorkspace];
+                } else {
+                    cutPath.push(mouseWorkspace);
+                }
+                drawCutPath();
+                
+                for (let i = connections.length - 1; i >= 0; i--) {
+                    const conn = connections[i], start = getPortPos(conn.from, 'out'), end = getPortPos(conn.to, 'in');
+                    if(!start || !end) continue;
+                    const cp = Math.max(Math.abs(end.x - start.x) * 0.5, 50);
+                    const p0 = start, p1 = { x: start.x + cp, y: start.y }, p2 = { x: end.x - cp, y: end.y }, p3 = end;
+                    let prevP = p0, hit = false;
+                    for (let j = 1; j <= 10; j++) {
+                        const curP = getBezierPoint(j / 10, p0, p1, p2, p3);
+                        if (doSegmentsIntersect(cutPath[cutPath.length-2] || mouseWorkspace, mouseWorkspace, prevP, curP)) { hit = true; break; }
+                        prevP = curP;
+                    }
+                    if (hit) { connections.splice(i, 1); selectedLineIndices.delete(i); drawAllLines(); }
+                }
+                return;
+            }
+
+            // 画布边缘滑动自动推移
+            checkEdgeScroll(touch.clientX, touch.clientY);
+
+            // 如果有双击决策挂起
+            if (doubleTapPending) {
+                // 如果单指双击后移动了 10px 以上，代表用户的真实意图是【框选】，此时完美撤销双击新建，开启框选框！
+                if (Math.hypot(touch.clientX - lastTapX, touch.clientY - lastTapY) > 10) {
+                    doubleTapPending = false;
+                    isSelecting = true;
+                    const rect = workspaceContainer.getBoundingClientRect();
+                    selectionStartX = lastTapX - rect.left;
+                    selectionStartY = lastTapY - rect.top;
+                    selectionBox.style.left = `${selectionStartX}px`;
+                    selectionBox.style.top = `${selectionStartY}px`;
+                    selectionBox.style.width = '0px';
+                    selectionBox.style.height = '0px';
+                    selectionBox.style.display = 'block';
+                }
+                return;
+            }
+
+            if (isPanning) {
+                panX = touch.clientX - startPanX;
+                panY = touch.clientY - startPanY;
+                updateWorkspaceTransform();
+                return;
+            }
+
+            if (isDraggingNode) {
+                lastX = touch.clientX;
+                lastY = touch.clientY;
+                triggerNodeDragUpdate(null);
+                return;
+            }
+
+            if (isConnecting) {
+                lastX = touch.clientX;
+                lastY = touch.clientY;
+                tempLineEnd = screenToWorkspace(touch.clientX, touch.clientY);
+                const target = touch.target ? touch.target.closest('.node') : null;
+                document.querySelectorAll('.node.drop-target').forEach(el => el.classList.remove('drop-target'));
+                if (target && target.id !== connectStartNodeId) { target.classList.add('drop-target'); tempLineEnd = getPortPos(target.id, 'in'); }
+                drawAllLines();
+                return;
+            }
+
+            if (isSelecting) {
+                const rect = workspaceContainer.getBoundingClientRect();
+                const relX = touch.clientX - rect.left;
+                const relY = touch.clientY - rect.top;
+                const l = Math.min(selectionStartX, relX), t = Math.min(selectionStartY, relY), w = Math.abs(relX - selectionStartX), h = Math.abs(relY - selectionStartY);
+                selectionBox.style.left = `${l}px`; selectionBox.style.top = `${t}px`; selectionBox.style.width = `${w}px`; selectionBox.style.height = `${h}px`;
+                const sRect = selectionBox.getBoundingClientRect();
+                document.querySelectorAll('.node').forEach(nel => {
+                    const nr = nel.getBoundingClientRect();
+                    if (nr.left < sRect.right && nr.right > sRect.left && nr.top < sRect.bottom && nr.bottom > sRect.top) selectedNodes.add(nel.id);
+                    else selectedNodes.delete(nel.id);
+                });
+                updateSelectionVisuals();
+                return;
+            }
+        }
+    }, { passive: false });
+
+    workspaceContainer.addEventListener('touchend', (e) => {
+        if (!isTouchMode) return;
+
+        if (e.touches.length < 2) {
+            touchStartCenter = null;
+        }
+
+        if (e.touches.length === 0) {
+            // --- 【滑完即关】：手指一离开屏幕（touchend）立刻推出并切回正常选择状态
+            if (isScissorsMode) {
+                isCutting = false;
+                isScissorsMode = false;
+                document.body.classList.remove('scissors-mode');
+                document.getElementById('sb-default').style.display = 'inline';
+                document.getElementById('sb-scissors').style.display = 'none';
+                cutPath = [];
+                drawCutPath();
+            }
+
+            // 如果确实无拖动，且双击挂起依然存在，说明用户的意图是【双击画布】
+            if (doubleTapPending) {
+                doubleTapPending = false;
+                // --- 【重点修复与完美机制】：如果在双击前我们记录了选中的节点克隆源（cloneSourceOnTouch），双击瞬间在这克隆出副本
+                if (cloneSourceOnTouch && cloneSourceOnTouch.length > 0) {
+                    const newIdsMap = {};
+                    const pastedIds = [];
+                    let firstNode = cloneSourceOnTouch[0];
+                    // 完美换算位移，把选中的一组节点瞬间等比拉过来，对齐到双击触点的中心！
+                    let dx = doubleTapWorkspacePos.x - firstNode.x - firstNode.w/2;
+                    let dy = doubleTapWorkspacePos.y - firstNode.y - firstNode.h/2;
+
+                    cloneSourceOnTouch.forEach(item => {
+                        const newId = generateId();
+                        newIdsMap[item.id || item.originalId || generateId()] = newId;
+
+                        const pastedImgs = (item.images || []).map(img => ({ ...img, id: generateId() }));
+                        const pastedVids = (item.videos || []).map(vid => ({ ...vid, id: generateId() }));
+
+                        createNode(
+                            item.x + dx, 
+                            item.y + dy, 
+                            item.title + " (复本)", 
+                            item.content, 
+                            item.w, 
+                            item.h, 
+                            newId, 
+                            item.themeId, 
+                            item.customColor, 
+                            pastedImgs, 
+                            pastedVids, 
+                            item.imgCanvasHeight,
+                            item.fontSize,
+                            item.vidListHeight
+                        );
+                        pastedIds.push(newId);
+                    });
+
+                    // 同步克隆克隆源内部的所有相交连接线！高段位排版必备
+                    connections.forEach(conn => {
+                        let fromInClone = cloneSourceOnTouch.find(n => n.id === conn.from || n.originalId === conn.from);
+                        let toInClone = cloneSourceOnTouch.find(n => n.id === conn.to || n.originalId === conn.to);
+                        if (fromInClone && toInClone) {
+                            const newFrom = newIdsMap[conn.from];
+                            const newTo = newIdsMap[conn.to];
+                            if (newFrom && newTo) {
+                                connections.push({ from: newFrom, to: newTo });
+                            }
+                        }
+                    });
+
+                    clearSelection();
+                    pastedIds.forEach(id => selectedNodes.add(id));
+                    updateSelectionVisuals();
+                    drawAllLines();
+                    cloneSourceOnTouch = null; 
+                } else {
+                    // 无选择的情况下双击：在双击处新建普通节点卡片
+                    createNode(doubleTapWorkspacePos.x - 120, doubleTapWorkspacePos.y - 100);
+                }
+                lastTapX = null;
+            }
+
+            // --- 【高阶：解决拉线松手无法接通节点的底层物理碰撞算法】 ---
+            if (isConnecting) {
+                let hitNodeId = null;
+                // 计算手指释放点相对于视口绝对坐标 (lastX, lastY)
+                // 遍历寻找当前包含此坐标的节点物理包围盒边界
+                for (let id in nodes) {
+                    if (id === connectStartNodeId) continue;
+                    const nodeEl = document.getElementById(id);
+                    if (nodeEl) {
+                        const rect = nodeEl.getBoundingClientRect();
+                        if (lastX >= rect.left && lastX <= rect.right && lastY >= rect.top && lastY <= rect.bottom) {
+                            hitNodeId = id;
+                            break;
+                        }
+                    }
+                }
+
+                if (hitNodeId) {
+                    // 碰撞成功：秒级接通连线线路
+                    if (!connections.find(c => c.from === connectStartNodeId && c.to === hitNodeId)) {
+                        connections.push({ from: connectStartNodeId, to: hitNodeId });
+                    }
+                }
+                
+                isConnecting = false;
+                connectStartNodeId = null;
+                document.querySelectorAll('.node.drop-target').forEach(el => el.classList.remove('drop-target'));
+                drawAllLines();
+            }
+
+            // 重置触控缩放把手属性
+            isResizingNodeTouch = false;
+            resizeNodeTouchId = null;
+
+            // 重置小画布 Resizer 上下杆触控拉动属性
+            isResizingVidListTouch = false;
+            isResizingCanvasTouch = false;
+            touchResizeCanvasNodeId = null;
+            touchResizeVidListNodeId = null;
+
+            isPanning = false;
+            isDraggingNode = false;
+            isSelecting = false;
+            selectionBox.style.display = 'none';
+            document.body.classList.remove('grabbing');
+            clearSnapGuidelines();
+        }
+    });
+
+    // 专属的复制并偏移粘贴函数
+    function performPasteNodesOffset(dx, dy) {
+        if (!copiedNodesClipboard || copiedNodesClipboard.length === 0) return;
+        const newIdsMap = {}; 
+        const pastedIds = [];
+
+        copiedNodesClipboard.forEach(item => {
+            const newId = generateId();
+            newIdsMap[item.originalId] = newId;
+
+            const pastedImgs = (item.images || []).map(img => ({ ...img, id: generateId() }));
+            const pastedVids = (item.videos || []).map(vid => ({ ...vid, id: generateId() }));
+
+            createNode(
+                item.x + dx, 
+                item.y + dy, 
+                item.title + " (复本)", 
+                item.content, 
+                item.w, 
+                item.h, 
+                newId, 
+                item.themeId, 
+                item.customColor, 
+                pastedImgs, 
+                pastedVids, 
+                item.imgCanvasHeight,
+                item.fontSize,
+                item.vidListHeight
+            );
+            pastedIds.push(newId);
+        });
+
+        connections.forEach(conn => {
+            if (newIdsMap[conn.from] && newIdsMap[conn.to]) {
+                connections.push({ from: newIdsMap[conn.from], to: newIdsMap[conn.to] });
+            }
+        });
+
+        clearSelection();
+        pastedIds.forEach(id => selectedNodes.add(id));
+        updateSelectionVisuals();
+        drawAllLines();
+    }
+
+    // 默认的鼠标滚轮与键盘事件依然在桌面端/Mac触控板端并行保障：
+    window.addEventListener('mousedown', (e) => {
+        if (isTouchMode) return; // 触控激活模式下，屏蔽默认 mouse 逻辑防止多重触底手势打架
+        if (e.target.closest('#toolbar') || e.target.closest('#left-toolbar')) return;
+
+        // --- 【在 Mousedown 强力捕获右键开启剪刀模式】 ---
+        if (e.button === 2) {
+            e.preventDefault();
+            isScissorsMode = !isScissorsMode; 
+            if (isScissorsMode) {
+                document.body.classList.add('scissors-mode');
+                document.getElementById('sb-default').style.display = 'none';
+                document.getElementById('sb-scissors').style.display = 'inline';
+            } else {
+                document.body.classList.remove('scissors-mode');
+                document.getElementById('sb-default').style.display = 'inline';
+                document.getElementById('sb-scissors').style.display = 'none';
+                cutPath = []; drawCutPath();
+            }
+            return;
+        }
+
+        if (e.target.closest('#color-palette') || (!e.target.closest('#color-picker-wrapper') && document.getElementById('color-palette').classList.remove('show'))) return;
+
+        // 剪刀切口开始
+        if (isScissorsMode && e.button === 0) {
+            e.preventDefault();
+            isCutting = true;
+            cutPath = [screenToWorkspace(e.clientX, e.clientY)];
+            drawCutPath();
+            return;
+        }
+
+        if (e.target.closest('#magnetic-port')) {
+            e.preventDefault(); e.stopPropagation(); setGlobalSelect(true);
+            isConnecting = true; connectStartNodeId = magneticPort.dataset.nodeId || window.hoveredMagneticNodeId; 
+            magneticPort.style.display = 'none'; tempLineEnd = screenToWorkspace(e.clientX, e.clientY);
+            drawAllLines(); return;
+        }
+
+        // --- 【平移手型拖拽检测】 ---
+        if (isBackgroundEvent(e) && e.button === 0) { 
+            if (isPanMode) {
+                e.preventDefault(); setGlobalSelect(true); isPanning = true;
+                startPanX = e.clientX - panX; startPanY = e.clientY - panY;
+                document.body.classList.add('grabbing');
+                document.body.style.cursor = 'grabbing';
+                return;
+            }
+            selectedLineIndices.clear(); drawAllLines(); 
+            selectedMiniImgs.clear(); document.querySelectorAll('.mini-img-wrapper').forEach(w => w.classList.remove('active-img')); 
+        }
+
+        if (e.button === 1) {
+            e.preventDefault(); setGlobalSelect(true); isPanning = true;
+            startPanX = e.clientX - panX; startPanY = e.clientY - panY;
+            document.body.style.cursor = 'grabbing'; return;
+        }
+
+        const nodeEl = e.target.closest('.node');
+        if (nodeEl && e.button === 0 && !e.target.closest('.node-content > *') && !e.target.closest('.node-title') && !e.target.closest('.node-header-actions') && !e.target.closest('.resize-handle')) {
+            setGlobalSelect(true); nodesContainer.appendChild(nodeEl);
+            
+            // Alt 克隆触发
+            if (e.altKey) {
+                if (!selectedNodes.has(nodeEl.id)) {
+                    clearSelection();
+                    selectedNodes.add(nodeEl.id);
+                }
+                performCopySelectedNodes(); 
+                altDraggingCopied = false;  
+            } else {
+                if (!selectedNodes.has(nodeEl.id)) { 
+                    if (!e.shiftKey) clearSelection(); 
+                    selectedNodes.add(nodeEl.id); 
+                }
+            }
+
+            updateSelectionVisuals();
+            isDraggingNode = true; dragStartMouseX = e.clientX; dragStartMouseY = e.clientY;
+            draggedNodesInitialPositions = {};
+            selectedNodes.forEach(id => { if(nodes[id]) draggedNodesInitialPositions[id] = {x:nodes[id].x, y:nodes[id].y}; });
+            return;
+        }
+
+        if (e.button === 0 && isBackgroundEvent(e)) {
+            setGlobalSelect(true); clearSelection(); isSelecting = true; const rect = workspaceContainer.getBoundingClientRect();
+            selectionStartX = e.clientX - rect.left; selectionStartY = e.clientY - rect.top;
+            selectionBox.style.left = `${selectionStartX}px`; selectionBox.style.top = `${selectionStartY}px`;
+            selectionBox.style.width = '0px'; selectionBox.style.height = '0px'; selectionBox.style.display = 'block';
+        }
+    });
+
+    window.addEventListener('mousemove', (e) => {
+        if (isTouchMode) return;
+        lastX = e.clientX;
+        lastY = e.clientY;
+
+        // 画布边缘推动
+        checkEdgeScroll(e.clientX, e.clientY);
+
+        if (isCutting) {
+            const mouseWorkspace = screenToWorkspace(e.clientX, e.clientY); cutPath.push(mouseWorkspace); drawCutPath();
+            for (let i = connections.length - 1; i >= 0; i--) {
+                const conn = connections[i], start = getPortPos(conn.from, 'out'), end = getPortPos(conn.to, 'in');
+                if(!start || !end) continue;
+                const cp = Math.max(Math.abs(end.x - start.x) * 0.5, 50);
+                const p0 = start, p1 = { x: start.x + cp, y: start.y }, p2 = { x: end.x - cp, y: end.y }, p3 = end;
+                let prevP = p0, hit = false;
+                for (let j = 1; j <= 10; j++) {
+                    const curP = getBezierPoint(j / 10, p0, p1, p2, p3);
+                    if (doSegmentsIntersect(cutPath[cutPath.length-2] || mouseWorkspace, mouseWorkspace, prevP, curP)) { hit = true; break; }
+                    prevP = curP;
+                }
+                if (hit) { connections.splice(i, 1); selectedLineIndices.delete(i); drawAllLines(); }
+            }
+            return;
+        }
+
+        if (isScissorsMode) return;
+        const rect = workspaceContainer.getBoundingClientRect();
+        
+        if (isDraggingPreview) { previewImgPanX = previewStartPanX + (e.clientX - previewDragStartX); previewImgPanY = previewStartPanY + (e.clientY - previewDragStartY); updatePreviewImgTransform(); return; }
+
+        if (isResizingVidList && resizeVidListNodeId) {
+            const nh = Math.max(40, resizeVidListStartH + (e.clientY - resizeVidListStartY) / scale);
+            nodes[resizeVidListNodeId].vidListHeight = nh;
+            const el = document.querySelector(`#${resizeVidListNodeId} .video-list-container`);
+            if(el) el.style.height = `${nh}px`; drawAllLines(); return;
+        }
+
+        if (isCanvasSelecting && activeCanvasNodeId) {
+            const container = document.querySelector(`#${activeCanvasNodeId} .image-canvas-container`);
+            if (container) {
+                const cRect = container.getBoundingClientRect();
+                const curX = (e.clientX - cRect.left) / scale; 
+                const curY = (e.clientY - cRect.top) / scale;
+                
+                const l = Math.min(canvasSelectionStartX, curX), t = Math.min(canvasSelectionStartY, curY);
+                const w = Math.abs(curX - canvasSelectionStartX), h = Math.abs(curY - canvasSelectionStartY);
+                
+                const cBox = document.getElementById(`c-box-${nodeId}`);
+                if (cBox) {
+                    cBox.style.left = `${l}px`; cBox.style.top = `${t}px`;
+                    cBox.style.width = `${w}px`; cBox.style.height = `${h}px`;
+                }
+                
+                selectedMiniImgs.clear();
+                nodes[activeCanvasNodeId].images.forEach(img => {
+                    const ir = img.x + img.w, ib = img.y + img.h;
+                    if (img.x < l + w && ir > l && img.y < t + h && ib > t) selectedMiniImgs.add(img.id);
+                });
+                
+                document.querySelectorAll(`#${activeCanvasNodeId} .mini-img-wrapper`).forEach(wrapper => {
+                    if (selectedMiniImgs.has(wrapper.dataset.id)) wrapper.classList.add('active-img');
+                    else wrapper.classList.remove('active-img');
+                });
+            }
+            return;
+        }
+
+        if (isResizingMiniImg && activeCanvasNodeId) {
+            const dx = (e.clientX / scale) - miniImgStartX;
+            const dy = (e.clientY / scale) - miniImgStartY;
+            
+            selectedMiniImgs.forEach(imgId => {
+                const img = nodes[activeCanvasNodeId].images.find(i => i.id === imgId);
+                const startData = miniImgStartData[imgId];
+                
+                let nw = startData.w, nh = startData.h;
+                
+                if (activeResizeDir === 'br') {
+                    nw = Math.max(20, startData.w + dx); nh = nw / startData.ratio;
+                } else if (activeResizeDir === 'tl') {
+                    nw = Math.max(20, startData.w - dx); nh = nw / startData.ratio;
+                    img.x = startData.x + startData.w - nw; img.y = startData.y + startData.h - nh;
+                } else if (activeResizeDir === 'tr') {
+                    nw = Math.max(20, startData.w + dx); nh = nw / startData.ratio;
+                    img.y = startData.y + startData.h - nh;
+                } else if (activeResizeDir === 'bl') {
+                    nw = Math.max(20, startData.w - dx); nh = nw / startData.ratio;
+                    img.x = startData.x + startData.w - nw;
+                }
+                
+                img.w = nw; img.h = nh;
+                
+                const el = document.querySelector(`#${activeCanvasNodeId} .mini-img-wrapper[data-id="${imgId}"]`);
+                if(el) { el.style.width = `${img.w}px`; el.style.height = `${img.h}px`; el.style.transform = `translate(${img.x}px, ${img.y}px) rotate(${img.rot||0}deg)`; }
+            });
+            return;
+        }
+
+        if (isRotatingMiniImg && activeCanvasNodeId) {
+            const curAngle = Math.atan2(e.clientY - rotateCenterScreenY, e.clientX - rotateCenterScreenX) * 180 / Math.PI;
+            const dAngle = curAngle - startMouseAngle;
+            
+            selectedMiniImgs.forEach(imgId => {
+                const img = nodes[activeCanvasNodeId].images.find(i => i.id === imgId);
+                let newRot = miniImgStartData[imgId].rot + dAngle;
+                if (e.shiftKey) newRot = Math.round(newRot / 5) * 5; 
+                img.rot = newRot;
+                const el = document.querySelector(`#${activeCanvasNodeId} .mini-img-wrapper[data-id="${imgId}"]`);
+                if(el) el.style.transform = `translate(${img.x}px, ${img.y}px) rotate(${img.rot}deg)`;
+            });
+            return;
+        }
+
+        if (isDraggingMiniImg && activeCanvasNodeId) {
+            const dx = (e.clientX / scale) - miniImgStartX;
+            const dy = (e.clientY / scale) - miniImgStartY;
+
+            selectedMiniImgs.forEach(imgId => {
+                const img = nodes[activeCanvasNodeId].images.find(i => i.id === imgId);
+                const startData = miniImgStartData[imgId];
+                img.x = startData.x + dx; 
+                img.y = startData.y + dy;
+                const el = document.querySelector(`#${activeCanvasNodeId} .mini-img-wrapper[data-id="${imgId}"]`);
+                if(el) { el.style.width = `${img.w}px`; el.style.height = `${img.h}px`; el.style.transform = `translate(${img.x}px, ${img.y}px) rotate(${img.rot||0}deg)`; }
+            }); 
+            return;
+        }
+
+        if (isResizingCanvas && resizeCanvasNodeId) {
+            const nh = Math.max(60, resizeCanvasStartH + (e.clientY - resizeCanvasStartY) / scale);
+            nodes[resizeCanvasNodeId].imgCanvasHeight = nh;
+            const el = document.querySelector(`#${resizeCanvasNodeId} .image-canvas-container`);
+            if(el) el.style.height = `${nh}px`; drawAllLines(); return;
+        }
+
+        if (isPanning) { panX = e.clientX - startPanX; panY = e.clientY - startPanY; updateWorkspaceTransform(); return; }
+        
+        const local = screenToWorkspace(e.clientX, e.clientY);
+        if (isDraggingNode) {
+            // 传入原生事件 e，使 Alt 克隆完美捕获并跟手克隆拖拽
+            triggerNodeDragUpdate(e);
+            return;
+        }
+        if (isSelecting) {
+            const relX = e.clientX - rect.left, relY = e.clientY - rect.top;
+            const l = Math.min(selectionStartX, relX), t = Math.min(selectionStartY, relY), w = Math.abs(relX - selectionStartX), h = Math.abs(relY - selectionStartY);
+            selectionBox.style.left = `${l}px`; selectionBox.style.top = `${t}px`; selectionBox.style.width = `${w}px`; selectionBox.style.height = `${h}px`;
+            const sRect = selectionBox.getBoundingClientRect();
+            document.querySelectorAll('.node').forEach(nel => {
+                const nr = nel.getBoundingClientRect();
+                if (nr.left < sRect.right && nr.right > sRect.left && nr.top < sRect.bottom && nr.bottom > sRect.top) selectedNodes.add(nel.id);
+                else if(!e.shiftKey) selectedNodes.delete(nel.id);
+            });
+            updateSelectionVisuals(); return;
+        }
+        if (isConnecting) {
+            tempLineEnd = local; const target = e.target.closest('.node');
+            document.querySelectorAll('.node.drop-target').forEach(el => el.classList.remove('drop-target'));
+            if (target && target.id !== connectStartNodeId) { target.classList.add('drop-target'); tempLineEnd = getPortPos(target.id, 'in'); }
+            drawAllLines(); return;
+        }
+
+        if (!isConnecting && Object.keys(nodes).length > 0 && isBackgroundEvent({target:e.target})) {
+            let mDist = Infinity, bNode = null, bX = 0, bY = 0;
+            for (let id in nodes) {
+                let n = nodes[id], rx = n.x + n.w, ry = n.y + n.h / 2;
+                let d = Math.hypot(local.x - rx, local.y - ry);
+                if (d < 150 && local.x > rx - 40 && d < mDist) { mDist = d; bNode = id; bX = rx; bY = ry; }
+            }
+            if (bNode && !isDraggingNode && !isSelecting && !isPanning) {
+                magneticPort.style.display = 'flex';
+                let px = bX, py = bY;
+                if (mDist < 150) {
+                    let p = Math.pow(1 - (mDist / 150), 1.5);
+                    if(mDist < 40) p = 1; px = bX + (local.x - bX) * p; py = bY + (local.y - bY) * p;
+                }
+                magneticPort.style.left = `${px}px`; magneticPort.style.top = `${py}px`;
+                magneticPort.dataset.nodeId = bNode; window.hoveredMagneticNodeId = bNode;
+            } else { magneticPort.style.display = 'none'; magneticPort.dataset.nodeId = ""; window.hoveredMagneticNodeId = null; }
+        }
+    });
+
+    window.addEventListener('mouseup', (e) => {
+        if (isTouchMode) return;
+        if (isScissorsMode) {
+            if (e.button === 0) {
+                isCutting = false; isScissorsMode = false; document.body.classList.remove('scissors-mode');
+                document.getElementById('sb-default').style.display = 'inline'; document.getElementById('sb-scissors').style.display = 'none';
+                cutPath = []; drawCutPath(); return;
+            }
+        }
+
+        if (isCanvasSelecting) {
+            isCanvasSelecting = false;
+            document.querySelectorAll('.canvas-selection-box').forEach(b => b.style.display = 'none');
+        }
+
+        setGlobalSelect(false); isDraggingPreview = false; isDraggingNode = false; isDraggingMiniImg = false; isResizingCanvas = false;
+        altDraggingCopied = false; 
+
+        clearSnapGuidelines();
+
+        if (isResizingVidList) isResizingVidList = false;
+        if (isResizingMiniImg) isResizingMiniImg = false;
+        if (isRotatingMiniImg) isRotatingMiniImg = false;
+        document.body.style.cursor = 'default';
+        document.body.classList.remove('grabbing');
+        if (isPanning) { isPanning = false; document.body.style.cursor = 'default'; }
+        if (isSelecting) { isSelecting = false; selectionBox.style.display = 'none'; }
+        
+        if (isConnecting) {
+            const target = document.querySelector('.node.drop-target');
+            if (target && connectStartNodeId && target.id !== connectStartNodeId) {
+                if (!connections.find(c => c.from === connectStartNodeId && c.to === target.id)) connections.push({ from: connectStartNodeId, to: target.id });
+                target.classList.remove('drop-target');
+            }
+            isConnecting = false; connectStartNodeId = null; drawAllLines();
+        }
+    });
+
+    workspaceContainer.addEventListener('wheel', (e) => {
+        if (isScissorsMode || e.target.closest('#media-preview-modal') || e.target.closest('.media-gallery') || e.target.closest('textarea')) return;
+        e.preventDefault();
+        const zi = e.deltaY < 0 ? 1.08 : 0.92; const rect = workspaceContainer.getBoundingClientRect();
+        const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+        const lx = (mx - panX) / scale, ly = (my - panY) / scale;
+        
+        let ns = Math.max(0.02, Math.min(scale * zi, 4));
+        if (ns !== scale) { scale = ns; panX = mx - lx * scale; panY = my - ly * scale; updateWorkspaceTransform(); }
+    }, { passive: false });
+
+    window.addEventListener('dblclick', (e) => {
+        if (isScissorsMode) return;
+        if (e.button === 0 && isBackgroundEvent(e)) { const l = screenToWorkspace(e.clientX, e.clientY); createNode(l.x - 120, l.y - 100); }
+    });
+
+    window.addEventListener('keydown', (e) => {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+        
+        // --- 【Ctrl + C / Ctrl + V 复制监听】 ---
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+            e.preventDefault();
+            performCopySelectedNodes();
+            return;
+        }
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+            e.preventDefault();
+            performPasteNodes(30); 
+            return;
+        }
+
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+            if (selectedMiniImgs.size > 0 && activeCanvasNodeId) {
+                const n = nodes[activeCanvasNodeId];
+                if (n) { n.images = n.images.filter(i => !selectedMiniImgs.has(i.id)); renderNodeMedia(activeCanvasNodeId); }
+                selectedMiniImgs.clear(); return;
+            }
+            if (selectedLineIndices.size > 0) {
+                const sortedIndices = Array.from(selectedLineIndices).sort((a, b) => b - a);
+                sortedIndices.forEach(idx => connections.splice(idx, 1));
+                selectedLineIndices.clear(); drawAllLines();
+            }
+            deleteSelectedNodes();
+        }
+    });
+
+    // --- 【高保真函数复活区】 ---
+    function clearSelection() { 
+        selectedNodes.clear(); 
+        selectedLineIndices.clear(); 
+        updateSelectionVisuals(); 
+    }
+    
+    function deleteSelectedNodes() {
+        if(selectedNodes.size === 0) return;
+        selectedNodes.forEach(id => { 
+            const el = document.getElementById(id); 
+            if(el) el.remove(); 
+            delete nodes[id]; 
+            connections = connections.filter(c => c.from !== id && c.to !== id); 
+        });
+        selectedNodes.clear(); 
+        drawAllLines();
+    }
+
+    function updateSelectionVisuals() {
+        document.querySelectorAll('.node').forEach(el => { 
+            if (selectedNodes.has(el.id)) el.classList.add('selected'); 
+            else el.classList.remove('selected'); 
+        });
+        document.querySelectorAll('.connection-line').forEach(el => { 
+            const idx = parseInt(el.dataset.idx); 
+            if (selectedLineIndices.has(idx)) el.classList.add('selected-line'); 
+            else el.classList.remove('selected-line'); 
+        });
+    }
+
+    const modal = document.getElementById('media-preview-modal'), previewImg = document.getElementById('preview-image'), previewVid = document.getElementById('preview-video');
+    function openImagePreview(src) { previewImg.src = src; previewImg.style.display = 'block'; previewVid.style.display = 'none'; previewImgScale = 1; previewImgPanX = 0; previewImgPanY = 0; updatePreviewImgTransform(); modal.classList.add('show'); }
+    
+    window.openImagePreview = openImagePreview;
+
+    function openVideoPreview(src) { 
+        if (!src.startsWith('blob:') && !src.startsWith('http')) { alert('本地视频因安全机制(桌面端打包)无法记录绝对路径。\n请点击右侧"关联"图标重新选择该视频文件。'); return; }
+        previewVid.src = src; previewVid.style.display = 'block'; previewImg.style.display = 'none'; modal.classList.add('show'); previewVid.play(); 
+    }
+    function updatePreviewImgTransform() { previewImg.style.transform = `translate(${previewImgPanX}px, ${previewImgPanY}px) scale(${previewImgScale})`; }
+    function closePreview() { modal.classList.remove('show'); if(previewVid.style.display === 'block') { previewVid.pause(); previewVid.src = ''; } }
+    
+    modal.addEventListener('click', (e) => { if(e.target === modal || e.target.classList.contains('preview-image-container')) closePreview(); });
+    modal.addEventListener('dblclick', () => { if(previewImg.style.display === 'block') closePreview(); });
+    previewImg.addEventListener('mousedown', (e) => { if(e.button !== 0) return; e.preventDefault(); isDraggingPreview = true; previewDragStartX = e.clientX; previewDragStartY = e.clientY; previewStartPanX = previewImgPanX; previewStartPanY = previewImgPanY; });
+    modal.addEventListener('wheel', (e) => {
+        if(previewImg.style.display === 'block') { 
+            e.preventDefault(); 
+            const zi = e.deltaY < 0 ? 1.1 : 0.9; 
+            previewImgScale = Math.max(0.2, Math.min(previewImgScale * zi, 10)); 
+            updatePreviewImgTransform(); 
+        } 
+    }, {passive: false});
+
+    document.getElementById('add-node-btn').addEventListener('click', () => { const c = screenToWorkspace(window.innerWidth / 2, window.innerHeight / 2); createNode(c.x - 120, c.y - 100); });
+    
+    // --- 【重点攻坚】：完美离线打包 Base64 下载，让 iPad/手机等移动 Safari 与 Chrome 100% 呼出保存
+    document.getElementById('save-btn').addEventListener('click', async () => {
+        const exportNodes = JSON.parse(JSON.stringify(nodes));
+        for(let id in exportNodes) exportNodes[id].videos.forEach(v => { if(v.src.startsWith('blob:')) v.src = v.name; });
+        const dataStr = JSON.stringify({ nodes: exportNodes, connections, scale, panX, panY });
+        
+        // 1. 尝试高级电脑端文件保存句柄 picker 
+        try {
+            if (window.showSaveFilePicker) {
+                const handle = await window.showSaveFilePicker({
+                    suggestedName: 'story_flowchart.json',
+                    types: [{ description: 'JSON 文件', accept: {'application/json': ['.json']} }]
+                });
+                const writable = await handle.createWritable();
+                await writable.write(dataStr);
+                await writable.close(); 
+                return;
+            }
+        } catch (err) { 
+            if (err.name === 'AbortError') return; 
+        }
+        
+        // 2. 移动端高兼容性 Base64 Data URL 方案，完美触发 Safari 另存为和隔空投送！
+        try {
+            const blob = new Blob([dataStr], { type: 'application/json;charset=utf-8' });
+            const reader = new FileReader();
+            reader.onload = function(ev) {
+                const a = document.createElement('a'); 
+                a.href = ev.target.result; 
+                a.download = 'story_flowchart.json'; 
+                document.body.appendChild(a); 
+                a.click(); 
+                document.body.removeChild(a); 
+            };
+            reader.readAsDataURL(blob);
+        } catch(e) {
+            alert("下载失败，请手动复制保存：\n" + dataStr);
+        }
+    });
+
+    document.getElementById('file-input').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                try {
+                    const data = JSON.parse(ev.target.result);
+                    if (data && data.nodes && data.connections) {
+                        nodesContainer.innerHTML = ''; svgBg.innerHTML = ''; svgFg.innerHTML = ''; nodes = {}; connections = []; selectedNodes.clear(); selectedLineIndices.clear();
+                        scale = data.scale || 1; panX = data.panX || 0; panY = data.panY || 0; updateWorkspaceTransform();
+                        nodes = data.nodes;
+                        Object.keys(nodes).forEach(id => {
+                            const n = nodes[id];
+                            if(n.image && !n.images) { n.images = [{id:generateId(), src:n.image, x:20, y:20, w:100, h:100, rot:0, z:0}]; delete n.image; }
+                            createNode(n.x, n.y, n.title, n.content, n.w, n.h, id, n.themeId, n.customColor, n.images, n.videos, n.imgCanvasHeight, n.fontSize, n.vidListHeight);
+                        });
+                        connections = data.connections; drawAllLines();
+                    }
+                } catch (err) { alert("读取存档失败！文件格式不正确或已损坏。"); }
+            };
+            reader.readAsText(file);
+        }
+        this.value = '';
+    });
+
+    document.getElementById('image-upload-input').addEventListener('change', function(e) {
+        if(!window.activeMediaNode) return;
+        Array.from(e.target.files).forEach(file => {
+            const r = new FileReader();
+            r.onload = (ev) => {
+                const n = nodes[window.activeMediaNode]; const tempImg = new Image();
+                tempImg.onload = () => {
+                    let initW = tempImg.width, initH = tempImg.height; if (initW > 120) { initH = (120 / initW) * initH; initW = 120; }
+                    n.images.push({ id: generateId(), src: ev.target.result, x: 10 + (n.images.length*10)%50, y: 10 + (n.images.length*10)%50, w: initW, h: initH, rot: 0, z: n.images.length });
+                    renderNodeMedia(window.activeMediaNode);
+                }; tempImg.src = ev.target.result;
+            }; r.readAsDataURL(file);
+        }); this.value = '';
+    });
+
+    document.getElementById('video-upload-input').addEventListener('change', function(e) {
+        if(!window.activeMediaNode) return;
+        const f = e.target.files[0]; if(!f) return;
+        nodes[window.activeMediaNode].videos.push({id: generateId(), name: f.name, originalName: f.name, src: URL.createObjectURL(f)});
+        renderNodeMedia(window.activeMediaNode); this.value = '';
+    });
+
+    document.getElementById('toolbar-color-btn').addEventListener('click', (e) => { 
+        e.stopPropagation(); 
+        document.getElementById('color-palette').classList.toggle('show'); 
+    });
+
+    document.querySelectorAll('.swatch').forEach(s => s.addEventListener('click', (e) => {
+        e.stopPropagation(); 
+        if (selectedNodes.size > 0) selectedNodes.forEach(id => applyNodeColor(id, parseInt(s.dataset.theme), null));
+        document.getElementById('color-palette').classList.remove('show');
+    }));
+
+    document.getElementById('custom-color-input').addEventListener('input', (e) => { 
+        if (selectedNodes.size > 0) selectedNodes.forEach(id => applyNodeColor(id, null, e.target.value)); 
+    });
+
+    // --- 【悬浮按钮事件绑定】 ---
+    const panToggleBtn = document.getElementById('pan-toggle-btn');
+    const snapToggleBtn = document.getElementById('snap-toggle-btn');
+    const gridToggleBtn = document.getElementById('grid-toggle-btn');
+    const deviceToggleBtn = document.getElementById('device-toggle-btn');
+
+    panToggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        isPanMode = !isPanMode;
+        panToggleBtn.classList.toggle('active', isPanMode);
+        document.body.classList.toggle('pan-cursor-active', isPanMode);
+    });
+
+    snapToggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        isGridSnap = !isGridSnap;
+        snapToggleBtn.classList.toggle('active', isGridSnap);
+        if (isGridSnap) {
+            Object.keys(nodes).forEach(id => {
+                nodes[id].x = Math.round(nodes[id].x / 30) * 30;
+                nodes[id].y = Math.round(nodes[id].y / 30) * 30;
+                const el = document.getElementById(id);
+                if (el) {
+                    el.style.left = `${nodes[id].x}px`;
+                    el.style.top = `${nodes[id].y}px`;
+                }
+            });
+            drawAllLines();
+        }
+    });
+
+    gridToggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        isGridVisible = !isGridVisible;
+        gridToggleBtn.classList.toggle('active', isGridVisible);
+        workspaceContainer.classList.toggle('grid-hidden', !isGridVisible);
+    });
+
+    // --- 【设备识别与键鼠/触控动态转换器】 ---
+    function detectDeviceAndApply() {
+        const hasTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+        isTouchMode = hasTouch;
+        updateDeviceUI();
+    }
+
+    function updateDeviceUI() {
+        if (isTouchMode) {
+            deviceToggleBtn.innerHTML = '<i class="fas fa-fingerprint"></i>';
+            deviceToggleBtn.title = "当前模式：触控手势操作 (轻触切换至键鼠)";
+            deviceToggleBtn.classList.add('active');
+            document.body.classList.add('touch-mode-active');
+        } else {
+            deviceToggleBtn.innerHTML = '<i class="fas fa-desktop"></i>';
+            deviceToggleBtn.title = "当前模式：标准键鼠操作 (轻触切换至触控)";
+            deviceToggleBtn.classList.remove('active');
+            document.body.classList.remove('touch-mode-active');
+        }
+    }
+
+    deviceToggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        isTouchMode = !isTouchMode;
+        updateDeviceUI();
+    });
+
+    // 初始化运行环境自检
+    detectDeviceAndApply();
+    updateWorkspaceTransform(); 
+    createNode(200, 150, "故事开端", "你从昏迷中醒来...");
+
+    // --- 【初始化浅色/深色默认状态】 ---
+    const themeBtn = document.getElementById('theme-toggle-btn');
+    if (isLightMode) {
+        themeBtn.innerHTML = '<i class="fas fa-moon"></i> 深色模式';
+        themeBtn.style.backgroundColor = '#374151';
+        document.body.classList.add('light-mode');
+        Object.keys(nodes).forEach(id => applyNodeColor(id, nodes[id].themeId, nodes[id].customColor));
+    }
+
+</script>
+</body>
+</html>
