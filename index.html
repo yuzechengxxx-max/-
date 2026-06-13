@@ -587,8 +587,9 @@
     let lastTapTime = 0;                    // 上一次轻触时间
     let lastTapX = 0;                       // 上一次轻触坐标
     let lastTapY = 0;
-    let tapTimes = [];                       // 三击判定时间队列
-    let tapPositions = [];                   // 三击判定坐标队列
+    let longPressTimer = null;              // 长按剪刀模式计时器
+    let longPressStartX = 0;
+    let longPressStartY = 0;
     let threeFingerTapCount = 0;            // 三指点击计数
     let lastThreeFingerTapTime = 0;
 
@@ -1191,6 +1192,7 @@
         });
 
         // --- 【全面适配小画布、列表上下 Resizer 杆的 iPad / 手机高优先触控拉伸】 ---
+        // 注意：不调stopPropagation()，让事件冒泡到workspaceContainer设置activeTouchId
         gallery.addEventListener('touchstart', (e) => {
             if (isScissorsMode || e.touches.length !== 1) return;
             const target = e.target;
@@ -1198,8 +1200,7 @@
             
             // 0. 图片缩放把手
             if (target.closest('.mh-resize')) {
-                e.preventDefault(); e.stopPropagation();
-                activeTouchId = touch.identifier;
+                e.preventDefault();
                 const wrapper = target.closest('.mini-img-wrapper');
                 const imgId = wrapper.dataset.id;
                 selectedMiniImgs.clear(); selectedMiniImgs.add(imgId);
@@ -1218,8 +1219,7 @@
             
             // 0b. 图片旋转把手
             if (target.closest('.mh-rotate-handle')) {
-                e.preventDefault(); e.stopPropagation();
-                activeTouchId = touch.identifier;
+                e.preventDefault();
                 const wrapper = target.closest('.mini-img-wrapper');
                 const imgId = wrapper.dataset.id;
                 selectedMiniImgs.clear(); selectedMiniImgs.add(imgId);
@@ -1239,8 +1239,7 @@
             
             // 0c. 图片本身（拖拽移动）
             if (target.tagName === 'IMG' && target.closest('.mini-img-wrapper')) {
-                e.preventDefault(); e.stopPropagation();
-                activeTouchId = touch.identifier;
+                e.preventDefault();
                 const wrapper = target.closest('.mini-img-wrapper');
                 const imgId = wrapper.dataset.id;
                 if (!selectedMiniImgs.has(imgId)) { selectedMiniImgs.clear(); }
@@ -1259,7 +1258,6 @@
                     const img = nodes[nodeId].images.find(i => i.id === id);
                     if (img) miniImgStartData[id] = { x: img.x, y: img.y, w: img.w, h: img.h, rot: img.rot || 0, ratio: img.w / img.h };
                 });
-                // 提升z-index
                 let maxZ = Math.max(0, ...nodes[nodeId].images.map(i => i.z || 0));
                 selectedMiniImgs.forEach(id => {
                     const img = nodes[nodeId].images.find(i => i.id === id);
@@ -1270,8 +1268,7 @@
 
             // 1. 视频列表高度拖拽上下杆
             if (target.closest('.video-list-resizer')) {
-                e.preventDefault(); e.stopPropagation(); setGlobalSelect(true);
-                activeTouchId = touch.identifier;
+                e.preventDefault(); setGlobalSelect(true);
                 isResizingVidListTouch = true;
                 touchResizeVidListNodeId = nodeId;
                 touchResizeVidListStartY = touch.clientY;
@@ -1281,8 +1278,7 @@
             
             // 2. 小图片画布高度拖拽上下杆
             if (target.closest('.image-canvas-resizer')) {
-                e.preventDefault(); e.stopPropagation(); setGlobalSelect(true);
-                activeTouchId = touch.identifier;
+                e.preventDefault(); setGlobalSelect(true);
                 isResizingCanvasTouch = true;
                 touchResizeCanvasNodeId = nodeId;
                 touchResizeCanvasStartY = touch.clientY;
@@ -1701,20 +1697,17 @@
             if (isBackgroundEvent(e)) {
                 let now = Date.now();
 
-                // --- iOS兼容：单指三击空白区域切换剪刀模式（替代被Safari拦截的多指手势） ---
-                tapTimes.push(now);
-                tapPositions.push({ x: touch.clientX, y: touch.clientY });
-                if (tapTimes.length > 3) { tapTimes.shift(); tapPositions.shift(); }
-                if (tapTimes.length === 3 && (now - tapTimes[0] < 600)) {
-                    const allClose = tapPositions.every(p =>
-                        Math.hypot(p.x - tapPositions[2].x, p.y - tapPositions[2].y) < 30
-                    );
-                    if (allClose) {
+                // --- iOS兼容：长按空白区域500ms切换剪刀模式 ---
+                longPressStartX = touch.clientX;
+                longPressStartY = touch.clientY;
+                if (longPressTimer) clearTimeout(longPressTimer);
+                longPressTimer = setTimeout(() => {
+                    // 检查手指是否移动过（容差15px）
+                    if (Math.hypot(lastX - longPressStartX, lastY - longPressStartY) < 15) {
                         toggleScissorsMode();
-                        tapTimes = []; tapPositions = [];
-                        return;
+                        longPressTimer = null;
                     }
-                }
+                }, 500);
 
                 // 3b. 双击手势决策锁建立 (Double-click Decision)
                 // 不再立刻创建节点，在 touchmove 阶段中如果发生拖动则直接重置并转到"框选/平移"，抬起时无拖动才触发"创建/复制"
@@ -1799,10 +1792,20 @@
         }
 
         // 单指手势跟手动量更新
-        if (e.touches.length === 1 && (activeTouchId !== null || isConnecting)) {
+        if (e.touches.length === 1 && (activeTouchId !== null || isConnecting || isDraggingMiniImg || isResizingMiniImg || isRotatingMiniImg || isResizingCanvasTouch || isResizingVidListTouch || isResizingNodeTouch)) {
             let touch = Array.from(e.touches).find(t => t.identifier === activeTouchId);
-            if (!touch && isConnecting) touch = e.touches[0]; // iOS兼容：activeTouchId未设置时回退到第一个触摸点
+            if (!touch && (isConnecting || isDraggingMiniImg || isResizingMiniImg || isRotatingMiniImg || isResizingCanvasTouch || isResizingVidListTouch || isResizingNodeTouch)) touch = e.touches[0]; // iOS兼容：stopPropagation导致activeTouchId未设置时回退
             if (!touch) return;
+
+            // 始终更新lastX/lastY，供长按判定等使用
+            lastX = touch.clientX;
+            lastY = touch.clientY;
+
+            // 手指移动超过阈值时取消长按剪刀模式计时器
+            if (longPressTimer && Math.hypot(touch.clientX - longPressStartX, touch.clientY - longPressStartY) > 15) {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+            }
 
             // --- 【高精度单指触摸右下角拉伸缩把手处理】 ---
             if (isResizingNodeTouch && resizeNodeTouchId) {
@@ -2054,6 +2057,9 @@
             // 重置触控缩放把手属性
             isResizingNodeTouch = false;
             resizeNodeTouchId = null;
+
+            // 清理长按剪刀模式计时器
+            if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
 
             // 重置小画布 Resizer 上下杆触控拉动属性
             isResizingVidListTouch = false;
