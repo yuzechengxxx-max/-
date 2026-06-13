@@ -1066,6 +1066,9 @@
                 isDraggingNode = false; 
                 isPanning = false;
                 connectStartNodeId = nodeId;
+                activeTouchId = touch.identifier; // 同步触摸ID，确保touchmove能追踪此手势
+                lastX = touch.clientX;
+                lastY = touch.clientY;
                 tempLineEnd = screenToWorkspace(touch.clientX, touch.clientY);
                 drawAllLines();
                 portTapX = null; // 重置双击判定
@@ -1701,8 +1704,9 @@
         }
 
         // 单指手势跟手动量更新
-        if (e.touches.length === 1 && activeTouchId !== null) {
-            const touch = Array.from(e.touches).find(t => t.identifier === activeTouchId);
+        if (e.touches.length === 1 && (activeTouchId !== null || isConnecting)) {
+            let touch = Array.from(e.touches).find(t => t.identifier === activeTouchId);
+            if (!touch && isConnecting) touch = e.touches[0]; // iOS兼容：activeTouchId未设置时回退到第一个触摸点
             if (!touch) return;
 
             // --- 【高精度单指触摸右下角拉伸缩把手处理】 ---
@@ -1921,14 +1925,17 @@
             // --- 【高阶：解决拉线松手无法接通节点的底层物理碰撞算法】 ---
             if (isConnecting) {
                 let hitNodeId = null;
-                // 计算手指释放点相对于视口绝对坐标 (lastX, lastY)
+                // 优先使用changedTouches获取精确松手坐标，兼容iOS Safari
+                const endTouch = e.changedTouches && e.changedTouches[0];
+                const endX = endTouch ? endTouch.clientX : lastX;
+                const endY = endTouch ? endTouch.clientY : lastY;
                 // 遍历寻找当前包含此坐标的节点物理包围盒边界
                 for (let id in nodes) {
                     if (id === connectStartNodeId) continue;
                     const nodeEl = document.getElementById(id);
                     if (nodeEl) {
                         const rect = nodeEl.getBoundingClientRect();
-                        if (lastX >= rect.left && lastX <= rect.right && lastY >= rect.top && lastY <= rect.bottom) {
+                        if (endX >= rect.left && endX <= rect.right && endY >= rect.top && endY <= rect.bottom) {
                             hitNodeId = id;
                             break;
                         }
