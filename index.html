@@ -443,6 +443,7 @@
         <button id="pan-toggle-btn" class="left-btn" title="鼠标左键平移模式 (Mac/无中键用户推荐)"><i class="fas fa-hand-paper"></i></button>
         <button id="snap-toggle-btn" class="left-btn" title="智能边界磁吸与网格捕捉"><i class="fas fa-th"></i></button>
         <button id="grid-toggle-btn" class="left-btn active" title="开启/关闭背景点阵网格"><i class="fas fa-border-all"></i></button>
+        <button id="scissors-toggle-btn" class="left-btn" title="剪刀模式：划线切断连线 (触屏/iOS推荐)"><i class="fas fa-cut"></i></button>
         <!-- 新增键鼠与触控可以选择切换的按钮，并在触控设备上高亮显示 -->
         <button id="device-toggle-btn" class="left-btn" title="手动切换 键鼠/触控 模式"><i class="fas fa-desktop"></i></button>
     </div>
@@ -1541,6 +1542,7 @@
                         document.getElementById('sb-scissors').style.display = 'none';
                         cutPath = []; drawCutPath();
                     }
+                    document.getElementById('scissors-toggle-btn').classList.toggle('active', isScissorsMode);
                     threeFingerTapCount = 0;
                 }
             } else {
@@ -1855,6 +1857,7 @@
                 document.body.classList.remove('scissors-mode');
                 document.getElementById('sb-default').style.display = 'inline';
                 document.getElementById('sb-scissors').style.display = 'none';
+                document.getElementById('scissors-toggle-btn').classList.remove('active');
                 cutPath = [];
                 drawCutPath();
             }
@@ -2037,6 +2040,7 @@
                 document.getElementById('sb-scissors').style.display = 'none';
                 cutPath = []; drawCutPath();
             }
+            document.getElementById('scissors-toggle-btn').classList.toggle('active', isScissorsMode);
             return;
         }
 
@@ -2300,6 +2304,7 @@
             if (e.button === 0) {
                 isCutting = false; isScissorsMode = false; document.body.classList.remove('scissors-mode');
                 document.getElementById('sb-default').style.display = 'inline'; document.getElementById('sb-scissors').style.display = 'none';
+                document.getElementById('scissors-toggle-btn').classList.remove('active');
                 cutPath = []; drawCutPath(); return;
             }
         }
@@ -2457,21 +2462,34 @@
             if (err.name === 'AbortError') return; 
         }
         
-        // 2. 移动端高兼容性 Base64 Data URL 方案，完美触发 Safari 另存为和隔空投送！
+        const blob = new Blob([dataStr], { type: 'application/json;charset=utf-8' });
+
+        // iOS Safari兼容：优先使用系统分享面板（隔空投送/保存到文件等）
+        if (navigator.share && navigator.canShare) {
+            try {
+                const file = new File([blob], 'story_flowchart.json', { type: 'application/json' });
+                if (navigator.canShare({ files: [file] })) {
+                    await navigator.share({ files: [file], title: '导出流程图' });
+                    return;
+                }
+            } catch (err) {
+                if (err.name === 'AbortError') return;
+            }
+        }
+
+        // 其他移动端/桌面端：尝试下载
         try {
-            const blob = new Blob([dataStr], { type: 'application/json;charset=utf-8' });
-            const reader = new FileReader();
-            reader.onload = function(ev) {
-                const a = document.createElement('a'); 
-                a.href = ev.target.result; 
-                a.download = 'story_flowchart.json'; 
-                document.body.appendChild(a); 
-                a.click(); 
-                document.body.removeChild(a); 
-            };
-            reader.readAsDataURL(blob);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); 
+            a.href = url;
+            a.download = 'story_flowchart.json'; 
+            document.body.appendChild(a); 
+            a.click(); 
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
         } catch(e) {
-            alert("下载失败，请手动复制保存：\n" + dataStr);
+            // 最终回退：弹窗显示JSON内容供手动复制
+            prompt("下载失败，请手动复制保存：", dataStr);
         }
     });
 
@@ -2541,6 +2559,7 @@
     const panToggleBtn = document.getElementById('pan-toggle-btn');
     const snapToggleBtn = document.getElementById('snap-toggle-btn');
     const gridToggleBtn = document.getElementById('grid-toggle-btn');
+    const scissorsToggleBtn = document.getElementById('scissors-toggle-btn');
     const deviceToggleBtn = document.getElementById('device-toggle-btn');
 
     panToggleBtn.addEventListener('click', (e) => {
@@ -2573,6 +2592,26 @@
         isGridVisible = !isGridVisible;
         gridToggleBtn.classList.toggle('active', isGridVisible);
         workspaceContainer.classList.toggle('grid-hidden', !isGridVisible);
+    });
+
+    // --- 【iOS兼容：剪刀模式按钮（三指手势在iOS Safari上被系统拦截不可用）】 ---
+    function toggleScissorsMode() {
+        isScissorsMode = !isScissorsMode;
+        if (isScissorsMode) {
+            document.body.classList.add('scissors-mode');
+            document.getElementById('sb-default').style.display = 'none';
+            document.getElementById('sb-scissors').style.display = 'inline';
+        } else {
+            document.body.classList.remove('scissors-mode');
+            document.getElementById('sb-default').style.display = 'inline';
+            document.getElementById('sb-scissors').style.display = 'none';
+            cutPath = []; drawCutPath();
+        }
+        scissorsToggleBtn.classList.toggle('active', isScissorsMode);
+    }
+    scissorsToggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleScissorsMode();
     });
 
     // --- 【设备识别与键鼠/触控动态转换器】 ---
