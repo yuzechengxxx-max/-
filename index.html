@@ -589,6 +589,9 @@
     let lastTapY = 0;
     let threeFingerTapCount = 0;            // 三指点击计数
     let lastThreeFingerTapTime = 0;
+    let lastTwoFingerTapTime = 0;           // 双指双击计时（iOS兼容三指）
+    let lastTwoFingerTapX = 0;
+    let lastTwoFingerTapY = 0;
 
     // --- 【触控高精度节点缩放与决策变量】 ---
     let isResizingNodeTouch = false;
@@ -1557,17 +1560,35 @@
             e.preventDefault();
             const t1 = e.touches[0];
             const t2 = e.touches[1];
+            const now = Date.now();
+            const centerX = (t1.clientX + t2.clientX) / 2;
+            const centerY = (t1.clientY + t2.clientY) / 2;
+
+            // --- iOS兼容：双指双击切换剪刀模式（替代被Safari拦截的三指手势） ---
+            if (lastTwoFingerTapTime && now - lastTwoFingerTapTime < 400) {
+                const tapDist = Math.hypot(centerX - lastTwoFingerTapX, centerY - lastTwoFingerTapY);
+                if (tapDist < 60) {
+                    // 双指双击判定成功：切换剪刀模式
+                    toggleScissorsMode();
+                    lastTwoFingerTapTime = 0;
+                    return;
+                }
+            }
+            // 记录本次双指触摸，等待下一次判定双击
+            lastTwoFingerTapTime = now;
+            lastTwoFingerTapX = centerX;
+            lastTwoFingerTapY = centerY;
+
+            // 正常双指缩放初始化
             touchStartDist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
             touchStartScale = scale;
             
             const rect = workspaceContainer.getBoundingClientRect();
-            const centerX = (t1.clientX + t2.clientX) / 2 - rect.left;
-            const centerY = (t1.clientY + t2.clientY) / 2 - rect.top;
             touchStartCenter = {
-                x: (centerX - panX) / scale,
-                y: (centerY - panY) / scale,
-                screenX: centerX,
-                screenY: centerY
+                x: (centerX - rect.left - panX) / scale,
+                y: (centerY - rect.top - panY) / scale,
+                screenX: centerX - rect.left,
+                screenY: centerY - rect.top
             };
             return;
         }
