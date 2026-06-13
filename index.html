@@ -721,6 +721,23 @@
         lastLineTouchTime = now;
     };
 
+    // --- 触屏端：双击图片才进入预览，单击仅选中不穿透 ---
+    let lastImgTouchTime = 0;
+    let lastImgTouchSrc = null;
+    window.handleImgTouch = function(e, src) {
+        e.stopPropagation();
+        let now = Date.now();
+        if (lastImgTouchSrc === src && now - lastImgTouchTime < 350) {
+            // 双击：进入预览
+            window.openImagePreview(src);
+            lastImgTouchSrc = null;
+        } else {
+            // 单击：仅记录，不做任何操作（不进入预览）
+            lastImgTouchSrc = src;
+        }
+        lastImgTouchTime = now;
+    };
+
     window.selectLine = function(index, e) {
         if (isScissorsMode) return;
         if (!e.shiftKey) selectedLineIndices.clear();
@@ -796,7 +813,7 @@
                 <div class="mini-img-wrapper ${isSelected ? 'active-img' : ''}" data-id="${img.id}" style="transform: translate(${img.x}px, ${img.y}px) rotate(${img.rot || 0}deg); z-index: ${img.z || 0}; width: ${img.w}px; height: ${img.h}px;">
                     <div class="mh-rotate-handle mh-rot-tl"></div><div class="mh-rotate-handle mh-rot-tr"></div>
                     <div class="mh-rotate-handle mh-rot-bl"></div><div class="mh-rotate-handle mh-rot-br"></div>
-                    <img src="${img.src}" style="width: 100%; height: 100%; object-fit: contain; pointer-events: auto;" draggable="false" ondblclick="event.stopPropagation(); window.openImagePreview(this.src);" ontouchstart="event.stopPropagation(); window.openImagePreview(this.src);">
+                    <img src="${img.src}" style="width: 100%; height: 100%; object-fit: contain; pointer-events: auto;" draggable="false" ondblclick="event.stopPropagation(); window.openImagePreview(this.src);">
                     <div class="mh-resize mh-tl" data-dir="tl"></div><div class="mh-resize mh-tr" data-dir="tr"></div>
                     <div class="mh-resize mh-bl" data-dir="bl"></div><div class="mh-resize mh-br" data-dir="br"></div>
                 </div>`);
@@ -1237,11 +1254,25 @@
                 return;
             }
             
-            // 0c. 图片本身（拖拽移动）
+            // 0c. 图片本身（拖拽移动 + 双击预览）
             if (target.tagName === 'IMG' && target.closest('.mini-img-wrapper')) {
-                e.preventDefault();
                 const wrapper = target.closest('.mini-img-wrapper');
                 const imgId = wrapper.dataset.id;
+                const imgSrc = target.src;
+                const now = Date.now();
+
+                // 双击判定：350ms内点击同一张图片则进入预览
+                if (lastImgTouchSrc === imgSrc && now - lastImgTouchTime < 350) {
+                    e.preventDefault();
+                    window.openImagePreview(imgSrc);
+                    lastImgTouchSrc = null;
+                    return;
+                }
+                // 单击：记录并准备拖拽
+                lastImgTouchSrc = imgSrc;
+                lastImgTouchTime = now;
+
+                e.preventDefault();
                 if (!selectedMiniImgs.has(imgId)) { selectedMiniImgs.clear(); }
                 selectedMiniImgs.add(imgId);
                 document.querySelectorAll('.mini-img-wrapper').forEach(w => w.classList.remove('active-img'));
