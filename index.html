@@ -587,11 +587,10 @@
     let lastTapTime = 0;                    // 上一次轻触时间
     let lastTapX = 0;                       // 上一次轻触坐标
     let lastTapY = 0;
+    let tapTimes = [];                       // 三击判定时间队列
+    let tapPositions = [];                   // 三击判定坐标队列
     let threeFingerTapCount = 0;            // 三指点击计数
     let lastThreeFingerTapTime = 0;
-    let lastTwoFingerTapTime = 0;           // 双指双击计时（iOS兼容三指）
-    let lastTwoFingerTapX = 0;
-    let lastTwoFingerTapY = 0;
 
     // --- 【触控高精度节点缩放与决策变量】 ---
     let isResizingNodeTouch = false;
@@ -1195,13 +1194,87 @@
         gallery.addEventListener('touchstart', (e) => {
             if (isScissorsMode || e.touches.length !== 1) return;
             const target = e.target;
+            const touch = e.touches[0];
             
+            // 0. 图片缩放把手
+            if (target.closest('.mh-resize')) {
+                e.preventDefault(); e.stopPropagation();
+                activeTouchId = touch.identifier;
+                const wrapper = target.closest('.mini-img-wrapper');
+                const imgId = wrapper.dataset.id;
+                selectedMiniImgs.clear(); selectedMiniImgs.add(imgId);
+                document.querySelectorAll('.mini-img-wrapper').forEach(w => w.classList.remove('active-img'));
+                wrapper.classList.add('active-img');
+                activeCanvasNodeId = nodeId;
+                isResizingMiniImg = true;
+                activeResizeDir = target.dataset.dir;
+                miniImgStartX = touch.clientX / scale;
+                miniImgStartY = touch.clientY / scale;
+                miniImgStartData = {};
+                const img = nodes[nodeId].images.find(i => i.id === imgId);
+                if (img) miniImgStartData[imgId] = { x: img.x, y: img.y, w: img.w, h: img.h, rot: img.rot || 0, ratio: img.w / img.h };
+                return;
+            }
+            
+            // 0b. 图片旋转把手
+            if (target.closest('.mh-rotate-handle')) {
+                e.preventDefault(); e.stopPropagation();
+                activeTouchId = touch.identifier;
+                const wrapper = target.closest('.mini-img-wrapper');
+                const imgId = wrapper.dataset.id;
+                selectedMiniImgs.clear(); selectedMiniImgs.add(imgId);
+                document.querySelectorAll('.mini-img-wrapper').forEach(w => w.classList.remove('active-img'));
+                wrapper.classList.add('active-img');
+                activeCanvasNodeId = nodeId;
+                isRotatingMiniImg = true;
+                const rect = wrapper.getBoundingClientRect();
+                rotateCenterScreenX = rect.left + rect.width / 2;
+                rotateCenterScreenY = rect.top + rect.height / 2;
+                startMouseAngle = Math.atan2(touch.clientY - rotateCenterScreenY, touch.clientX - rotateCenterScreenX) * 180 / Math.PI;
+                miniImgStartData = {};
+                const img = nodes[nodeId].images.find(i => i.id === imgId);
+                if (img) miniImgStartData[imgId] = { x: img.x, y: img.y, w: img.w, h: img.h, rot: img.rot || 0, ratio: img.w / img.h };
+                return;
+            }
+            
+            // 0c. 图片本身（拖拽移动）
+            if (target.tagName === 'IMG' && target.closest('.mini-img-wrapper')) {
+                e.preventDefault(); e.stopPropagation();
+                activeTouchId = touch.identifier;
+                const wrapper = target.closest('.mini-img-wrapper');
+                const imgId = wrapper.dataset.id;
+                if (!selectedMiniImgs.has(imgId)) { selectedMiniImgs.clear(); }
+                selectedMiniImgs.add(imgId);
+                document.querySelectorAll('.mini-img-wrapper').forEach(w => w.classList.remove('active-img'));
+                selectedMiniImgs.forEach(id => {
+                    const el = document.querySelector(`#${nodeId} .mini-img-wrapper[data-id="${id}"]`);
+                    if (el) el.classList.add('active-img');
+                });
+                activeCanvasNodeId = nodeId;
+                isDraggingMiniImg = true;
+                miniImgStartX = touch.clientX / scale;
+                miniImgStartY = touch.clientY / scale;
+                miniImgStartData = {};
+                selectedMiniImgs.forEach(id => {
+                    const img = nodes[nodeId].images.find(i => i.id === id);
+                    if (img) miniImgStartData[id] = { x: img.x, y: img.y, w: img.w, h: img.h, rot: img.rot || 0, ratio: img.w / img.h };
+                });
+                // 提升z-index
+                let maxZ = Math.max(0, ...nodes[nodeId].images.map(i => i.z || 0));
+                selectedMiniImgs.forEach(id => {
+                    const img = nodes[nodeId].images.find(i => i.id === id);
+                    if (img) { img.z = ++maxZ; const el = document.querySelector(`#${nodeId} .mini-img-wrapper[data-id="${id}"]`); if (el) el.style.zIndex = img.z; }
+                });
+                return;
+            }
+
             // 1. 视频列表高度拖拽上下杆
             if (target.closest('.video-list-resizer')) {
                 e.preventDefault(); e.stopPropagation(); setGlobalSelect(true);
+                activeTouchId = touch.identifier;
                 isResizingVidListTouch = true;
                 touchResizeVidListNodeId = nodeId;
-                touchResizeVidListStartY = e.touches[0].clientY;
+                touchResizeVidListStartY = touch.clientY;
                 touchResizeVidListStartH = nodes[nodeId].vidListHeight || 100;
                 return;
             }
@@ -1209,9 +1282,10 @@
             // 2. 小图片画布高度拖拽上下杆
             if (target.closest('.image-canvas-resizer')) {
                 e.preventDefault(); e.stopPropagation(); setGlobalSelect(true);
+                activeTouchId = touch.identifier;
                 isResizingCanvasTouch = true;
                 touchResizeCanvasNodeId = nodeId;
-                touchResizeCanvasStartY = e.touches[0].clientY;
+                touchResizeCanvasStartY = touch.clientY;
                 touchResizeCanvasStartH = nodes[nodeId].imgCanvasHeight || 120;
                 return;
             }
@@ -1560,35 +1634,17 @@
             e.preventDefault();
             const t1 = e.touches[0];
             const t2 = e.touches[1];
-            const now = Date.now();
-            const centerX = (t1.clientX + t2.clientX) / 2;
-            const centerY = (t1.clientY + t2.clientY) / 2;
-
-            // --- iOS兼容：双指双击切换剪刀模式（替代被Safari拦截的三指手势） ---
-            if (lastTwoFingerTapTime && now - lastTwoFingerTapTime < 400) {
-                const tapDist = Math.hypot(centerX - lastTwoFingerTapX, centerY - lastTwoFingerTapY);
-                if (tapDist < 60) {
-                    // 双指双击判定成功：切换剪刀模式
-                    toggleScissorsMode();
-                    lastTwoFingerTapTime = 0;
-                    return;
-                }
-            }
-            // 记录本次双指触摸，等待下一次判定双击
-            lastTwoFingerTapTime = now;
-            lastTwoFingerTapX = centerX;
-            lastTwoFingerTapY = centerY;
-
-            // 正常双指缩放初始化
             touchStartDist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
             touchStartScale = scale;
             
             const rect = workspaceContainer.getBoundingClientRect();
+            const centerX = (t1.clientX + t2.clientX) / 2 - rect.left;
+            const centerY = (t1.clientY + t2.clientY) / 2 - rect.top;
             touchStartCenter = {
-                x: (centerX - rect.left - panX) / scale,
-                y: (centerY - rect.top - panY) / scale,
-                screenX: centerX - rect.left,
-                screenY: centerY - rect.top
+                x: (centerX - panX) / scale,
+                y: (centerY - panY) / scale,
+                screenX: centerX,
+                screenY: centerY
             };
             return;
         }
@@ -1644,8 +1700,24 @@
             // 如果点击在空白背景处
             if (isBackgroundEvent(e)) {
                 let now = Date.now();
+
+                // --- iOS兼容：单指三击空白区域切换剪刀模式（替代被Safari拦截的多指手势） ---
+                tapTimes.push(now);
+                tapPositions.push({ x: touch.clientX, y: touch.clientY });
+                if (tapTimes.length > 3) { tapTimes.shift(); tapPositions.shift(); }
+                if (tapTimes.length === 3 && (now - tapTimes[0] < 600)) {
+                    const allClose = tapPositions.every(p =>
+                        Math.hypot(p.x - tapPositions[2].x, p.y - tapPositions[2].y) < 30
+                    );
+                    if (allClose) {
+                        toggleScissorsMode();
+                        tapTimes = []; tapPositions = [];
+                        return;
+                    }
+                }
+
                 // 3b. 双击手势决策锁建立 (Double-click Decision)
-                // 不再立刻创建节点，在 touchmove 阶段中如果发生拖动则直接重置并转到“框选/平移”，抬起时无拖动才触发“创建/复制”
+                // 不再立刻创建节点，在 touchmove 阶段中如果发生拖动则直接重置并转到"框选/平移"，抬起时无拖动才触发"创建/复制"
                 let isDoubleTap = (lastTapX && Math.hypot(touch.clientX - lastTapX, touch.clientY - lastTapY) < 20 && now - lastTapTime < 350);
                 
                 if (isDoubleTap) {
@@ -1988,6 +2060,11 @@
             isResizingCanvasTouch = false;
             touchResizeCanvasNodeId = null;
             touchResizeVidListNodeId = null;
+
+            // 重置图片拖拽/缩放/旋转触控状态
+            isDraggingMiniImg = false;
+            isResizingMiniImg = false;
+            isRotatingMiniImg = false;
 
             isPanning = false;
             isDraggingNode = false;
