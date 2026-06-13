@@ -813,7 +813,7 @@
                 <div class="mini-img-wrapper ${isSelected ? 'active-img' : ''}" data-id="${img.id}" style="transform: translate(${img.x}px, ${img.y}px) rotate(${img.rot || 0}deg); z-index: ${img.z || 0}; width: ${img.w}px; height: ${img.h}px;">
                     <div class="mh-rotate-handle mh-rot-tl"></div><div class="mh-rotate-handle mh-rot-tr"></div>
                     <div class="mh-rotate-handle mh-rot-bl"></div><div class="mh-rotate-handle mh-rot-br"></div>
-                    <img src="${img.src}" style="width: 100%; height: 100%; object-fit: contain; pointer-events: auto;" draggable="false" ondblclick="event.stopPropagation(); window.openImagePreview(this.src);">
+                    <img src="${img.src}" style="width: 100%; height: 100%; object-fit: contain; pointer-events: auto;" draggable="false">
                     <div class="mh-resize mh-tl" data-dir="tl"></div><div class="mh-resize mh-tr" data-dir="tr"></div>
                     <div class="mh-resize mh-bl" data-dir="bl"></div><div class="mh-resize mh-br" data-dir="br"></div>
                 </div>`);
@@ -1188,6 +1188,17 @@
                     startMouseAngle = Math.atan2(e.clientY - rotateCenterScreenY, e.clientX - rotateCenterScreenX) * 180 / Math.PI;
                     document.body.style.cursor = 'crosshair';
                 } else if (e.target.tagName === 'IMG') {
+                    // 鼠标双击图片进入预览
+                    const imgSrc = e.target.src;
+                    const now = Date.now();
+                    if (lastImgTouchSrc === imgSrc && now - lastImgTouchTime < 350) {
+                        window.openImagePreview(imgSrc);
+                        lastImgTouchSrc = null;
+                        return;
+                    }
+                    lastImgTouchSrc = imgSrc;
+                    lastImgTouchTime = now;
+
                     let maxZ = Math.max(0, ...nodes[nodeId].images.map(i => i.z || 0));
                     selectedMiniImgs.forEach(id => {
                         const img = nodes[nodeId].images.find(i => i.id === id);
