@@ -1328,6 +1328,100 @@
                 return;
             }
         }, { passive: false });
+
+        // --- gallery专属touchmove：直接在gallery上处理图片操作，不依赖workspaceContainer冒泡 ---
+        gallery.addEventListener('touchmove', (e) => {
+            if (e.touches.length !== 1) return;
+            const touch = e.touches[0];
+
+            if (isDraggingMiniImg && activeCanvasNodeId === nodeId) {
+                e.preventDefault();
+                const dx = (touch.clientX / scale) - miniImgStartX;
+                const dy = (touch.clientY / scale) - miniImgStartY;
+                selectedMiniImgs.forEach(imgId => {
+                    const img = nodes[nodeId].images.find(i => i.id === imgId);
+                    const startData = miniImgStartData[imgId];
+                    if (!img || !startData) return;
+                    img.x = startData.x + dx;
+                    img.y = startData.y + dy;
+                    const el = document.querySelector(`#${nodeId} .mini-img-wrapper[data-id="${imgId}"]`);
+                    if (el) el.style.transform = `translate(${img.x}px, ${img.y}px) rotate(${img.rot||0}deg)`;
+                });
+                return;
+            }
+
+            if (isResizingMiniImg && activeCanvasNodeId === nodeId) {
+                e.preventDefault();
+                const dx = (touch.clientX / scale) - miniImgStartX;
+                selectedMiniImgs.forEach(imgId => {
+                    const img = nodes[nodeId].images.find(i => i.id === imgId);
+                    const startData = miniImgStartData[imgId];
+                    if (!img || !startData) return;
+                    let nw = startData.w;
+                    if (activeResizeDir === 'br' || activeResizeDir === 'tr') nw = Math.max(20, startData.w + dx);
+                    else nw = Math.max(20, startData.w - dx);
+                    let nh = nw / startData.ratio;
+                    if (activeResizeDir === 'tl') { img.x = startData.x + startData.w - nw; img.y = startData.y + startData.h - nh; }
+                    else if (activeResizeDir === 'tr') { img.y = startData.y + startData.h - nh; }
+                    else if (activeResizeDir === 'bl') { img.x = startData.x + startData.w - nw; }
+                    img.w = nw; img.h = nh;
+                    const el = document.querySelector(`#${nodeId} .mini-img-wrapper[data-id="${imgId}"]`);
+                    if (el) { el.style.width = `${img.w}px`; el.style.height = `${img.h}px`; el.style.transform = `translate(${img.x}px, ${img.y}px) rotate(${img.rot||0}deg)`; }
+                });
+                return;
+            }
+
+            if (isRotatingMiniImg && activeCanvasNodeId === nodeId) {
+                e.preventDefault();
+                const wrapper = document.querySelector(`#${nodeId} .mini-img-wrapper.active-img`);
+                if (!wrapper) return;
+                const rect = wrapper.getBoundingClientRect();
+                const cx = rect.left + rect.width / 2;
+                const cy = rect.top + rect.height / 2;
+                const curAngle = Math.atan2(touch.clientY - cy, touch.clientX - cx) * 180 / Math.PI;
+                const dAngle = curAngle - startMouseAngle;
+                selectedMiniImgs.forEach(imgId => {
+                    const img = nodes[nodeId].images.find(i => i.id === imgId);
+                    if (!img) return;
+                    img.rot = (miniImgStartData[imgId] ? miniImgStartData[imgId].rot : 0) + dAngle;
+                    const el = document.querySelector(`#${nodeId} .mini-img-wrapper[data-id="${imgId}"]`);
+                    if (el) el.style.transform = `translate(${img.x}px, ${img.y}px) rotate(${img.rot}deg)`;
+                });
+                return;
+            }
+
+            if (isResizingCanvasTouch && touchResizeCanvasNodeId === nodeId) {
+                e.preventDefault();
+                const dy = (touch.clientY - touchResizeCanvasStartY) / scale;
+                const nh = Math.max(60, touchResizeCanvasStartH + dy);
+                nodes[nodeId].imgCanvasHeight = nh;
+                const el = document.querySelector(`#${nodeId} .image-canvas-container`);
+                if (el) el.style.height = `${nh}px`;
+                return;
+            }
+
+            if (isResizingVidListTouch && touchResizeVidListNodeId === nodeId) {
+                e.preventDefault();
+                const dy = (touch.clientY - touchResizeVidListStartY) / scale;
+                const nh = Math.max(40, touchResizeVidListStartH + dy);
+                nodes[nodeId].vidListHeight = nh;
+                const el = document.querySelector(`#${nodeId} .video-list-container`);
+                if (el) el.style.height = `${nh}px`;
+                return;
+            }
+        }, { passive: false });
+
+        // --- gallery专属touchend：重置图片操作状态 ---
+        gallery.addEventListener('touchend', (e) => {
+            if (e.touches.length === 0) {
+                isDraggingMiniImg = false;
+                isResizingMiniImg = false;
+                isRotatingMiniImg = false;
+                isResizingCanvasTouch = false;
+                isResizingVidListTouch = false;
+                activeCanvasNodeId = null;
+            }
+        });
     }
 
     // 平移区域判定
