@@ -2330,8 +2330,8 @@
         }
 
         if (isResizingMiniImg && activeCanvasNodeId) {
-            const dx = (e.clientX / scale) - miniImgStartX;
-            const dy = (e.clientY / scale) - miniImgStartY;
+            const dx = (touch.clientX / scale) - miniImgStartX;
+            const dy = (touch.clientY / scale) - miniImgStartY;
             
             selectedMiniImgs.forEach(imgId => {
                 const img = nodes[activeCanvasNodeId].images.find(i => i.id === imgId);
@@ -2361,7 +2361,7 @@
         }
 
         if (isRotatingMiniImg && activeCanvasNodeId) {
-            const curAngle = Math.atan2(e.clientY - rotateCenterScreenY, e.clientX - rotateCenterScreenX) * 180 / Math.PI;
+            const curAngle = Math.atan2(touch.clientY - rotateCenterScreenY, touch.clientX - rotateCenterScreenX) * 180 / Math.PI;
             const dAngle = curAngle - startMouseAngle;
             
             selectedMiniImgs.forEach(imgId => {
@@ -2376,8 +2376,8 @@
         }
 
         if (isDraggingMiniImg && activeCanvasNodeId) {
-            const dx = (e.clientX / scale) - miniImgStartX;
-            const dy = (e.clientY / scale) - miniImgStartY;
+            const dx = (touch.clientX / scale) - miniImgStartX;
+            const dy = (touch.clientY / scale) - miniImgStartY;
 
             selectedMiniImgs.forEach(imgId => {
                 const img = nodes[activeCanvasNodeId].images.find(i => i.id === imgId);
