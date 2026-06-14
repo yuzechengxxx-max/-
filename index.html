@@ -1308,6 +1308,28 @@
                 return;
             }
 
+            // 0d. 点击画布空白区域开始框选
+            if (target.closest('.image-canvas-container') && !target.closest('.mini-img-wrapper') && !target.closest('.canvas-selection-box')) {
+                e.preventDefault();
+                selectedMiniImgs.clear();
+                activeCanvasNodeId = nodeId;
+                document.querySelectorAll('.mini-img-wrapper').forEach(w => w.classList.remove('active-img'));
+                isCanvasSelecting = true;
+                const container = target.closest('.image-canvas-container');
+                const rect = container.getBoundingClientRect();
+                canvasSelectionStartX = (touch.clientX - rect.left) / scale;
+                canvasSelectionStartY = (touch.clientY - rect.top) / scale;
+                const cBox = document.getElementById(`c-box-${nodeId}`);
+                if (cBox) {
+                    cBox.style.left = canvasSelectionStartX + 'px';
+                    cBox.style.top = canvasSelectionStartY + 'px';
+                    cBox.style.width = '0px';
+                    cBox.style.height = '0px';
+                    cBox.style.display = 'block';
+                }
+                return;
+            }
+
             // 1. 视频列表高度拖拽上下杆
             if (target.closest('.video-list-resizer')) {
                 e.preventDefault(); setGlobalSelect(true);
@@ -1409,6 +1431,37 @@
                 if (el) el.style.height = `${nh}px`;
                 return;
             }
+
+            // 画布框选
+            if (isCanvasSelecting && activeCanvasNodeId === nodeId) {
+                e.preventDefault();
+                const container = document.querySelector(`#${nodeId} .image-canvas-container`);
+                if (!container) return;
+                const cRect = container.getBoundingClientRect();
+                const curX = (touch.clientX - cRect.left) / scale;
+                const curY = (touch.clientY - cRect.top) / scale;
+                const l = Math.min(canvasSelectionStartX, curX);
+                const t = Math.min(canvasSelectionStartY, curY);
+                const w = Math.abs(curX - canvasSelectionStartX);
+                const h = Math.abs(curY - canvasSelectionStartY);
+                const cBox = document.getElementById(`c-box-${nodeId}`);
+                if (cBox) {
+                    cBox.style.left = `${l}px`;
+                    cBox.style.top = `${t}px`;
+                    cBox.style.width = `${w}px`;
+                    cBox.style.height = `${h}px`;
+                }
+                selectedMiniImgs.clear();
+                nodes[nodeId].images.forEach(img => {
+                    const ir = img.x + img.w, ib = img.y + img.h;
+                    if (img.x < l + w && ir > l && img.y < t + h && ib > t) selectedMiniImgs.add(img.id);
+                });
+                document.querySelectorAll(`#${nodeId} .mini-img-wrapper`).forEach(wrapper => {
+                    if (selectedMiniImgs.has(wrapper.dataset.id)) wrapper.classList.add('active-img');
+                    else wrapper.classList.remove('active-img');
+                });
+                return;
+            }
         }, { passive: false });
 
         // --- gallery专属touchend：重置图片操作状态 ---
@@ -1419,7 +1472,9 @@
                 isRotatingMiniImg = false;
                 isResizingCanvasTouch = false;
                 isResizingVidListTouch = false;
+                isCanvasSelecting = false;
                 activeCanvasNodeId = null;
+                document.querySelectorAll('.canvas-selection-box').forEach(b => b.style.display = 'none');
             }
         });
     }
@@ -2677,6 +2732,57 @@
             updatePreviewImgTransform(); 
         } 
     }, {passive: false});
+
+    // --- 预览图触控支持：单指拖拽平移 + 双指捏合缩放 + 双击关闭 ---
+    let previewTouchStartDist = 0;
+    let previewTouchStartScale = 1;
+    let previewLastTapTime = 0;
+    modal.addEventListener('touchstart', (e) => {
+        if (previewImg.style.display !== 'block') return;
+        if (e.touches.length === 2) {
+            e.preventDefault();
+            previewTouchStartDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+            previewTouchStartScale = previewImgScale;
+            return;
+        }
+        if (e.touches.length === 1) {
+            const touch = e.touches[0];
+            const now = Date.now();
+            // 双击关闭
+            if (now - previewLastTapTime < 300) {
+                closePreview();
+                previewLastTapTime = 0;
+                return;
+            }
+            previewLastTapTime = now;
+            // 单指拖拽
+            isDraggingPreview = true;
+            previewDragStartX = touch.clientX;
+            previewDragStartY = touch.clientY;
+            previewStartPanX = previewImgPanX;
+            previewStartPanY = previewImgPanY;
+        }
+    }, { passive: false });
+    modal.addEventListener('touchmove', (e) => {
+        if (previewImg.style.display !== 'block') return;
+        if (e.touches.length === 2) {
+            e.preventDefault();
+            const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+            previewImgScale = Math.max(0.2, Math.min(previewTouchStartScale * (dist / previewTouchStartDist), 10));
+            updatePreviewImgTransform();
+            return;
+        }
+        if (e.touches.length === 1 && isDraggingPreview) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            previewImgPanX = previewStartPanX + (touch.clientX - previewDragStartX);
+            previewImgPanY = previewStartPanY + (touch.clientY - previewDragStartY);
+            updatePreviewImgTransform();
+        }
+    }, { passive: false });
+    modal.addEventListener('touchend', (e) => {
+        isDraggingPreview = false;
+    });
 
     document.getElementById('add-node-btn').addEventListener('click', () => { const c = screenToWorkspace(window.innerWidth / 2, window.innerHeight / 2); createNode(c.x - 120, c.y - 100); });
     
