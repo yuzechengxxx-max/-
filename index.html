@@ -440,6 +440,8 @@
     <button id="save-btn" class="btn-secondary" title="导出故事场景流程图 JSON 数据"><i class="fas fa-save"></i> 导出保存</button>
     <button id="load-btn" class="btn-secondary" onclick="document.getElementById('file-input').click()"><i class="fas fa-folder-open"></i> 导入文件</button>
     <input type="file" id="file-input" style="display: none;" accept=".json">
+    <button id="undo-btn" class="btn-secondary" title="撤销 (Ctrl+Z)"><i class="fas fa-undo"></i></button>
+    <button id="redo-btn" class="btn-secondary" title="重做 (Ctrl+Shift+Z)"><i class="fas fa-redo"></i></button>
     <button id="relink-folder-btn" class="btn-secondary" onclick="document.getElementById('directory-input').click()" title="一键关联项目内的所有本地视频"><i class="fas fa-link"></i> 关联项目文件夹</button>
     <input type="file" id="directory-input" style="display: none;" webkitdirectory directory multiple>
     <div id="search-wrapper" style="position: relative; margin-left: auto; margin-right: 15px;">
@@ -483,6 +485,7 @@
     <span><i class="fas fa-mouse-pointer"></i> 中键/手形工具: 平移画布</span>
     <span><i class="fas fa-search"></i> 滚轮: 缩放画布</span>
     <span><i class="fas fa-copy"></i> <b>复制节点:</b> Ctrl+C/V 或 Alt+左键拖拽</span>
+    <span><i class="fas fa-undo"></i> <b>撤销/重做:</b> Ctrl+Z / Ctrl+Shift+Z</span>
 </div>
 
 <div id="media-preview-modal">
@@ -547,6 +550,13 @@
     let nodes = {}; 
     let connections = []; 
     let scale = 1, panX = 0, panY = 0;
+
+    // --- 【Blob URL 生命周期管理：防止内存泄漏】 ---
+    const blobUrlRegistry = new Set();
+    function trackBlobUrl(url) { if (url && url.startsWith('blob:')) blobUrlRegistry.add(url); }
+    function revokeBlobUrl(url) { if (blobUrlRegistry.has(url)) { URL.revokeObjectURL(url); blobUrlRegistry.delete(url); } }
+    function revokeAllBlobUrls() { blobUrlRegistry.forEach(url => { try { URL.revokeObjectURL(url); } catch(e) {} }); blobUrlRegistry.clear(); }
+    window.addEventListener('beforeunload', revokeAllBlobUrls);
     
     let isDraggingNode = false, isPanning = false, isSelecting = false, isConnecting = false;
     let isResizingCanvas = false, isResizingVidList = false;
@@ -594,6 +604,61 @@
 
     // --- 【LOD (Level of Detail) 记忆状态】 ---
     let lastLODState = false;
+
+    // --- 【撤销/重做系统：快照历史】 ---
+    const undoHistory = [];
+    const redoHistory = [];
+    const MAX_UNDO = 50;
+    let undoSaveScheduled = false;
+
+    function saveUndoState() {
+        const snapshot = {
+            nodes: JSON.parse(JSON.stringify(nodes)),
+            connections: JSON.parse(JSON.stringify(connections))
+        };
+        undoHistory.push(snapshot);
+        if (undoHistory.length > MAX_UNDO) undoHistory.shift();
+        redoHistory.length = 0;
+    }
+
+    function scheduleUndoSave() {
+        if (!undoSaveScheduled) {
+            undoSaveScheduled = true;
+            setTimeout(() => { undoSaveScheduled = false; }, 100);
+        }
+    }
+
+    function undo() {
+        if (undoHistory.length === 0) return;
+        const current = { nodes: JSON.parse(JSON.stringify(nodes)), connections: JSON.parse(JSON.stringify(connections)) };
+        redoHistory.push(current);
+        const prev = undoHistory.pop();
+        restoreState(prev);
+    }
+
+    function redo() {
+        if (redoHistory.length === 0) return;
+        const current = { nodes: JSON.parse(JSON.stringify(nodes)), connections: JSON.parse(JSON.stringify(connections)) };
+        undoHistory.push(current);
+        const next = redoHistory.pop();
+        restoreState(next);
+    }
+
+    function restoreState(snapshot) {
+        revokeAllBlobUrls();
+        nodesContainer.innerHTML = '';
+        nodes = snapshot.nodes;
+        connections = snapshot.connections;
+        selectedNodes.clear();
+        selectedLineIndices.clear();
+        Object.keys(nodes).forEach(id => {
+            const n = nodes[id];
+            createNode(n.x, n.y, n.title, n.content, n.w, n.h, id, n.themeId, n.customColor, n.images, n.videos, n.imgCanvasHeight, n.fontSize, n.vidListHeight);
+        });
+        drawAllLines();
+        updateSelectionVisuals();
+        markMinimapDirty();
+    }
 
     // --- 【触控手势专用变量集】 ---
     let isTouchMode = false;                // 触控/键鼠 模式标记
@@ -649,24 +714,35 @@
         return { x: (clientX - rect.left - panX) / scale, y: (clientY - rect.top - panY) / scale };
     }
 
+    // --- 【背景点阵缓存：仅在 scale 变化或网格开关切换时重建 backgroundImage】 ---
+    let lastBgScale = -1;
+    let lastBgImage = '';
+    let lastGridVisible = true;
+
     // 画布位置、缩放渲染，融入极致缩小净化优化与LOD触发生命周期
     function updateWorkspaceTransform() {
         workspace.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
         workspaceContainer.style.backgroundPosition = `${panX}px ${panY}px`;
         const bgSize = 30 * scale;
         workspaceContainer.style.backgroundSize = `${bgSize}px ${bgSize}px`;
-        // 圆点半径跟随缩放
-        const dotR = Math.max(0.5, 1.5 * scale);
-        workspaceContainer.style.backgroundImage = `radial-gradient(var(--dot-color) ${dotR}px, transparent ${dotR}px)`;
 
-        // 极佳视觉优化：当缩小到 0.12 以下时，自动隐藏背景微小网格，防止点阵重叠导致视觉疲劳
-        if (scale < 0.12) {
-            workspaceContainer.style.backgroundImage = 'none';
-        } else if (!isGridVisible) {
-            workspaceContainer.style.backgroundImage = 'none';
+        // 仅在 scale 或网格可见性变化时重建 backgroundImage
+        const scaleChanged = Math.abs(scale - lastBgScale) > 0.001;
+        const gridChanged = isGridVisible !== lastGridVisible;
+        if (scaleChanged || gridChanged) {
+            lastBgScale = scale;
+            lastGridVisible = isGridVisible;
+            if (scale < 0.12 || !isGridVisible) {
+                lastBgImage = 'none';
+            } else {
+                const dotR = Math.max(0.5, 1.5 * scale);
+                lastBgImage = `radial-gradient(var(--dot-color) ${dotR}px, transparent ${dotR}px)`;
+            }
+            workspaceContainer.style.backgroundImage = lastBgImage;
         }
 
         updateLOD();
+        markMinimapDirty();
     }
 
     // --- 【高阶：LOD智能细节层级状态变更检测与无极线段重绘】 ---
@@ -723,6 +799,7 @@
         svgBg.innerHTML = bgContent;
         svgFg.innerHTML = fgContent;
         drawCutPath();
+        markMinimapDirty();
     }
 
     // --- 【触屏端：单指双击连接线删除该线】 ---
@@ -767,6 +844,7 @@
 
     window.deleteLineByDblClick = function(index) {
         if (!isNaN(index) && connections[index]) {
+            saveUndoState();
             connections.splice(index, 1);
             selectedLineIndices.clear();
             drawAllLines();
@@ -900,6 +978,8 @@
     window.deleteVid = function(nodeId, vidId) {
         const n = nodes[nodeId];
         if (n) {
+            const vid = n.videos.find(v => v.id === vidId);
+            if (vid) revokeBlobUrl(vid.src);
             n.videos = n.videos.filter(v => v.id !== vidId);
             renderNodeMedia(nodeId);
         }
@@ -937,7 +1017,7 @@
             <div class="node-touch-port" title="双击并按住拖拉出连接线"></div>
         `;
         nodesContainer.appendChild(nodeEl);
-        applyNodeColor(nodeId, themeId, customColor); renderNodeMedia(nodeId); bindNodeEvents(nodeEl, nodeId); return nodeId;
+        applyNodeColor(nodeId, themeId, customColor); renderNodeMedia(nodeId); bindNodeEvents(nodeEl, nodeId); markMinimapDirty(); return nodeId;
     }
 
     function applyNodeColor(nodeId, themeId, customColor = null) {
@@ -995,7 +1075,7 @@
             const n = nodes[window.relinkData.nodeId];
             if (n) {
                 const vid = n.videos.find(v => v.id === window.relinkData.vidId);
-                if (vid) { vid.src = URL.createObjectURL(file); renderNodeMedia(window.relinkData.nodeId); }
+                if (vid) { revokeBlobUrl(vid.src); vid.src = URL.createObjectURL(file); trackBlobUrl(vid.src); renderNodeMedia(window.relinkData.nodeId); }
             }
         }
         this.value = '';
@@ -1009,6 +1089,7 @@
         files.forEach(file => {
             if(file.type.startsWith('video/')) {
                 fileMap[file.name] = URL.createObjectURL(file);
+                trackBlobUrl(fileMap[file.name]);
             }
         });
 
@@ -1057,7 +1138,7 @@
                 reader.readAsDataURL(file);
             } else if (file.type.startsWith('video/')) {
                 n.videos.push({id: generateId(), name: file.name, originalName: file.name, src: URL.createObjectURL(file)});
-                renderNodeMedia(nodeId);
+                trackBlobUrl(n.videos[n.videos.length - 1].src);                renderNodeMedia(nodeId);
             }
         });
     }
@@ -1066,13 +1147,13 @@
         const titleEl = nodeEl.querySelector('.node-title'); const contentEl = nodeEl.querySelector('.node-textarea');
         titleEl.addEventListener('input', () => { nodes[nodeId].title = titleEl.value; });
         contentEl.addEventListener('input', () => { nodes[nodeId].content = contentEl.value; });
-        nodeEl.querySelector('.node-delete-btn').addEventListener('click', (e) => { e.stopPropagation(); selectedNodes.add(nodeId); deleteSelectedNodes(); });
+        nodeEl.querySelector('.node-delete-btn').addEventListener('click', (e) => { e.stopPropagation(); selectedNodes.add(nodeId); saveUndoState(); deleteSelectedNodes(); });
 
         nodeEl.querySelector('.btn-font-minus').addEventListener('click', (e) => { e.stopPropagation(); const n = nodes[nodeId]; n.fontSize = Math.max(10, (n.fontSize || 14) - 2); contentEl.style.fontSize = `${n.fontSize}px`; });
         nodeEl.querySelector('.btn-font-plus').addEventListener('click', (e) => { e.stopPropagation(); const n = nodes[nodeId]; n.fontSize = Math.min(48, (n.fontSize || 14) + 2); contentEl.style.fontSize = `${n.fontSize}px`; });
 
         nodeEl.querySelector('.resize-handle').addEventListener('mousedown', (e) => {
-            if (isScissorsMode) return; e.stopPropagation(); setGlobalSelect(true);
+            if (isScissorsMode) return; e.stopPropagation(); setGlobalSelect(true); saveUndoState();
             let startW = nodes[nodeId].w, startH = nodes[nodeId].h, startX = e.clientX, startY = e.clientY;
             const doResize = (em) => {
                 nodes[nodeId].w = Math.max(200, startW + (em.clientX - startX) / scale); nodes[nodeId].h = Math.max(150, startH + (em.clientY - startY) / scale);
@@ -1869,6 +1950,7 @@
             const resizeHandle = targetEl.closest('.resize-handle');
             if (resizeHandle) {
                 e.preventDefault(); e.stopPropagation();
+                saveUndoState();
                 isResizingNodeTouch = true;
                 const parentNode = resizeHandle.closest('.node');
                 resizeNodeTouchId = parentNode.id;
@@ -1894,6 +1976,7 @@
                     selectedNodes.add(nodeEl.id);
                 }
                 updateSelectionVisuals();
+                saveUndoState();
                 isDraggingNode = true;
                 dragStartMouseX = touch.clientX;
                 dragStartMouseY = touch.clientY;
@@ -2063,6 +2146,7 @@
                 const mouseWorkspace = screenToWorkspace(touch.clientX, touch.clientY);
                 if (!isCutting) {
                     isCutting = true;
+                    saveUndoState();
                     cutPath = [mouseWorkspace];
                 } else {
                     cutPath.push(mouseWorkspace);
@@ -2174,6 +2258,7 @@
                 doubleTapPending = false;
                 // --- 【重点修复与完美机制】：如果在双击前我们记录了选中的节点克隆源（cloneSourceOnTouch），双击瞬间在这克隆出副本
                 if (cloneSourceOnTouch && cloneSourceOnTouch.length > 0) {
+                    saveUndoState();
                     const newIdsMap = {};
                     const pastedIds = [];
                     let firstNode = cloneSourceOnTouch[0];
@@ -2227,6 +2312,7 @@
                     cloneSourceOnTouch = null; 
                 } else {
                     // 无选择的情况下双击：在双击处新建普通节点卡片
+                    saveUndoState();
                     createNode(doubleTapWorkspacePos.x - 120, doubleTapWorkspacePos.y - 100);
                 }
                 lastTapX = null;
@@ -2255,6 +2341,7 @@
                 if (hitNodeId) {
                     // 碰撞成功：秒级接通连线线路
                     if (!connections.find(c => c.from === connectStartNodeId && c.to === hitNodeId)) {
+                        saveUndoState();
                         connections.push({ from: connectStartNodeId, to: hitNodeId });
                     }
                 }
@@ -2365,6 +2452,7 @@
         if (isScissorsMode && e.button === 0) {
             e.preventDefault();
             isCutting = true;
+            saveUndoState();
             cutPath = [screenToWorkspace(e.clientX, e.clientY)];
             drawCutPath();
             return;
@@ -2416,6 +2504,7 @@
             }
 
             updateSelectionVisuals();
+            saveUndoState();
             isDraggingNode = true; dragStartMouseX = e.clientX; dragStartMouseY = e.clientY;
             draggedNodesInitialPositions = {};
             selectedNodes.forEach(id => { if(nodes[id]) draggedNodesInitialPositions[id] = {x:nodes[id].x, y:nodes[id].y}; });
@@ -2645,7 +2734,7 @@
         if (isConnecting) {
             const target = document.querySelector('.node.drop-target');
             if (target && connectStartNodeId && target.id !== connectStartNodeId) {
-                if (!connections.find(c => c.from === connectStartNodeId && c.to === target.id)) connections.push({ from: connectStartNodeId, to: target.id });
+                if (!connections.find(c => c.from === connectStartNodeId && c.to === target.id)) { saveUndoState(); connections.push({ from: connectStartNodeId, to: target.id }); }
                 target.classList.remove('drop-target');
             }
             isConnecting = false; connectStartNodeId = null; drawAllLines();
@@ -2667,7 +2756,7 @@
         if (isScissorsMode) return;
         if (document.getElementById('media-preview-modal').classList.contains('show')) return;
         if (e.target.closest('.node') || e.target.closest('#toolbar') || e.target.closest('#left-toolbar')) return;
-        if (e.button === 0 && isBackgroundEvent(e)) { const l = screenToWorkspace(e.clientX, e.clientY); createNode(l.x - 120, l.y - 100); }
+        if (e.button === 0 && isBackgroundEvent(e)) { const l = screenToWorkspace(e.clientX, e.clientY); saveUndoState(); createNode(l.x - 120, l.y - 100); }
     });
 
     window.addEventListener('keydown', (e) => {
@@ -2685,17 +2774,31 @@
             return;
         }
 
+        // --- 【Ctrl + Z / Ctrl + Shift + Z 撤销重做】 ---
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+            e.preventDefault();
+            undo();
+            return;
+        }
+        if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) {
+            e.preventDefault();
+            redo();
+            return;
+        }
+
         if (e.key === 'Delete' || e.key === 'Backspace') {
             if (selectedMiniImgs.size > 0 && activeCanvasNodeId) {
                 const n = nodes[activeCanvasNodeId];
-                if (n) { n.images = n.images.filter(i => !selectedMiniImgs.has(i.id)); renderNodeMedia(activeCanvasNodeId); }
+                if (n) { saveUndoState(); n.images = n.images.filter(i => !selectedMiniImgs.has(i.id)); renderNodeMedia(activeCanvasNodeId); }
                 selectedMiniImgs.clear(); return;
             }
             if (selectedLineIndices.size > 0) {
+                saveUndoState();
                 const sortedIndices = Array.from(selectedLineIndices).sort((a, b) => b - a);
                 sortedIndices.forEach(idx => connections.splice(idx, 1));
                 selectedLineIndices.clear(); drawAllLines();
             }
+            saveUndoState();
             deleteSelectedNodes();
         }
     });
@@ -2712,11 +2815,14 @@
         selectedNodes.forEach(id => { 
             const el = document.getElementById(id); 
             if(el) el.remove(); 
+            const n = nodes[id];
+            if (n && n.videos) n.videos.forEach(v => revokeBlobUrl(v.src));
             delete nodes[id]; 
             connections = connections.filter(c => c.from !== id && c.to !== id); 
         });
         selectedNodes.clear(); 
         drawAllLines();
+        markMinimapDirty();
     }
 
     function updateSelectionVisuals() {
@@ -2729,6 +2835,7 @@
             if (selectedLineIndices.has(idx)) el.classList.add('selected-line'); 
             else el.classList.remove('selected-line'); 
         });
+        markMinimapDirty();
     }
 
     const modal = document.getElementById('media-preview-modal'), previewImg = document.getElementById('preview-image'), previewVid = document.getElementById('preview-video');
@@ -2806,7 +2913,9 @@
         isDraggingPreview = false;
     });
 
-    document.getElementById('add-node-btn').addEventListener('click', () => { const c = screenToWorkspace(window.innerWidth / 2, window.innerHeight / 2); createNode(c.x - 120, c.y - 100); });
+    document.getElementById('add-node-btn').addEventListener('click', () => { const c = screenToWorkspace(window.innerWidth / 2, window.innerHeight / 2); saveUndoState(); createNode(c.x - 120, c.y - 100); });
+    document.getElementById('undo-btn').addEventListener('click', undo);
+    document.getElementById('redo-btn').addEventListener('click', redo);
     
     // --- 【重点攻坚】：完美离线打包 Base64 下载，让 iPad/手机等移动 Safari 与 Chrome 100% 呼出保存
     document.getElementById('save-btn').addEventListener('click', async () => {
@@ -2869,6 +2978,8 @@
                 try {
                     const data = JSON.parse(ev.target.result);
                     if (data && data.nodes && data.connections) {
+                        revokeAllBlobUrls();
+                        saveUndoState();
                         nodesContainer.innerHTML = ''; svgBg.innerHTML = ''; svgFg.innerHTML = ''; nodes = {}; connections = []; selectedNodes.clear(); selectedLineIndices.clear();
                         scale = data.scale || 1; panX = data.panX || 0; panY = data.panY || 0; updateWorkspaceTransform();
                         nodes = data.nodes;
@@ -2905,6 +3016,7 @@
         if(!window.activeMediaNode) return;
         const f = e.target.files[0]; if(!f) return;
         nodes[window.activeMediaNode].videos.push({id: generateId(), name: f.name, originalName: f.name, src: URL.createObjectURL(f)});
+        trackBlobUrl(nodes[window.activeMediaNode].videos[nodes[window.activeMediaNode].videos.length - 1].src);
         renderNodeMedia(window.activeMediaNode); this.value = '';
     });
 
@@ -3209,9 +3321,11 @@
         drawMinimap();
     }
 
-    // 持续刷新小地图
+    // 持续刷新小地图：事件驱动，仅在脏标记置位时重绘
+    let minimapDirty = false;
+    function markMinimapDirty() { minimapDirty = true; }
     function minimapLoop() {
-        if (minimapVisible) drawMinimap();
+        if (minimapVisible && minimapDirty) { minimapDirty = false; drawMinimap(); }
         requestAnimationFrame(minimapLoop);
     }
     requestAnimationFrame(minimapLoop);
