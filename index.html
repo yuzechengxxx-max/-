@@ -653,13 +653,17 @@
     function updateWorkspaceTransform() {
         workspace.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
         workspaceContainer.style.backgroundPosition = `${panX}px ${panY}px`;
-        workspaceContainer.style.backgroundSize = `${30 * scale}px ${30 * scale}px`;
+        const bgSize = 30 * scale;
+        workspaceContainer.style.backgroundSize = `${bgSize}px ${bgSize}px`;
+        // 圆点半径跟随缩放
+        const dotR = Math.max(0.5, 1.5 * scale);
+        workspaceContainer.style.backgroundImage = `radial-gradient(var(--dot-color) ${dotR}px, transparent ${dotR}px)`;
 
         // 极佳视觉优化：当缩小到 0.12 以下时，自动隐藏背景微小网格，防止点阵重叠导致视觉疲劳
         if (scale < 0.12) {
             workspaceContainer.style.backgroundImage = 'none';
-        } else if (isGridVisible) {
-            workspaceContainer.style.backgroundImage = ''; // 恢复 CSS 中的 dot-color radial-gradient
+        } else if (!isGridVisible) {
+            workspaceContainer.style.backgroundImage = 'none';
         }
 
         updateLOD();
@@ -2474,7 +2478,7 @@
                 const l = Math.min(canvasSelectionStartX, curX), t = Math.min(canvasSelectionStartY, curY);
                 const w = Math.abs(curX - canvasSelectionStartX), h = Math.abs(curY - canvasSelectionStartY);
                 
-                const cBox = document.getElementById(`c-box-${nodeId}`);
+                const cBox = document.getElementById(`c-box-${activeCanvasNodeId}`);
                 if (cBox) {
                     cBox.style.left = `${l}px`; cBox.style.top = `${t}px`;
                     cBox.style.width = `${w}px`; cBox.style.height = `${h}px`;
@@ -2661,7 +2665,8 @@
 
     window.addEventListener('dblclick', (e) => {
         if (isScissorsMode) return;
-        if (e.target.closest('.node') || e.target.closest('#toolbar') || e.target.closest('#left-toolbar') || e.target.closest('#media-preview-modal')) return;
+        if (document.getElementById('media-preview-modal').classList.contains('show')) return;
+        if (e.target.closest('.node') || e.target.closest('#toolbar') || e.target.closest('#left-toolbar')) return;
         if (e.button === 0 && isBackgroundEvent(e)) { const l = screenToWorkspace(e.clientX, e.clientY); createNode(l.x - 120, l.y - 100); }
     });
 
