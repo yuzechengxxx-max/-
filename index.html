@@ -417,7 +417,8 @@
         .search-item .si-content { font-size: 11px; color: var(--textarea-text); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .search-item mark { background: #fbbf24; color: #000; border-radius: 2px; padding: 0 2px; }
         #search-input:focus { border-color: #3b82f6 !important; box-shadow: 0 0 0 2px rgba(59,130,246,0.3); }
-        body:not(.light-mode) #minimap { background: rgba(0,0,0,0.7); border-color: rgba(255,255,255,0.2); }
+        #minimap { background: rgba(255,255,255,0.88); border: 1px solid rgba(0,0,0,0.12); backdrop-filter: blur(4px); }
+        body:not(.light-mode) #minimap { background: rgba(20,20,20,0.82); border-color: rgba(255,255,255,0.15); }
         .node.highlight-flash { animation: flashHighlight 1.2s ease-in-out 3; }
         @keyframes flashHighlight { 0%,100% { box-shadow: 0 0 0 0 transparent; } 50% { box-shadow: 0 0 0 6px rgba(59,130,246,0.7), 0 0 20px rgba(59,130,246,0.4); } }
     </style>
@@ -471,7 +472,7 @@
         <div id="magnetic-port" draggable="false"><i class="fas fa-plus" draggable="false"></i></div>
     </div>
     <div id="selection-box"></div>
-    <div id="minimap" style="display: none; position: absolute; left: 15px; bottom: 40px; width: 200px; height: 150px; background: rgba(255,255,255,0.85); border: 1px solid rgba(0,0,0,0.15); border-radius: 6px; z-index: 200; overflow: hidden; cursor: pointer; backdrop-filter: blur(4px);">
+    <div id="minimap" style="display: none; position: absolute; left: 15px; bottom: 40px; width: 200px; height: 150px; border-radius: 6px; z-index: 200; overflow: hidden; cursor: pointer;">
         <canvas id="minimap-canvas" width="200" height="150"></canvas>
     </div>
 </div>
@@ -1161,7 +1162,7 @@
                     canvasSelectionStartX = (e.clientX - rect.left) / scale;
                     canvasSelectionStartY = (e.clientY - rect.top) / scale;
                     
-                    const cBox = document.getElementById(`c-box-${nodeId}`);
+                const cBox = document.getElementById(`c-box-${activeCanvasNodeId}`);
                     if(cBox) {
                         cBox.style.left = canvasSelectionStartX + 'px'; cBox.style.top = canvasSelectionStartY + 'px';
                         cBox.style.width = '0px'; cBox.style.height = '0px';
@@ -2660,6 +2661,7 @@
 
     window.addEventListener('dblclick', (e) => {
         if (isScissorsMode) return;
+        if (e.target.closest('.node') || e.target.closest('#toolbar') || e.target.closest('#left-toolbar') || e.target.closest('#media-preview-modal')) return;
         if (e.button === 0 && isBackgroundEvent(e)) { const l = screenToWorkspace(e.clientX, e.clientY); createNode(l.x - 120, l.y - 100); }
     });
 
