@@ -667,6 +667,7 @@
         }
 
         updateLOD();
+        markMinimapDirty();
     }
 
     // --- 【高阶：LOD智能细节层级状态变更检测与无极线段重绘】 ---
@@ -681,7 +682,7 @@
                 workspaceContainer.classList.remove('lod-active');
             }
             // 状态变更，瞬间重绘连接线
-            drawAllLines(); 
+            updateLinePositions(); 
         }
     }
 
@@ -693,6 +694,10 @@
         else { btn.innerHTML = '<i class="fas fa-sun"></i> 浅色模式'; btn.style.backgroundColor = ''; }
         Object.keys(nodes).forEach(id => applyNodeColor(id, nodes[id].themeId, nodes[id].customColor));
     });
+
+    // --- 【小地图脏标记：事件驱动更新】 ---
+    let minimapDirty = false;
+    function markMinimapDirty() { minimapDirty = true; }
 
     // --- 【双层 SVG 交互分离与 100% 极速双击断开】 ---
     function drawAllLines() {
@@ -723,6 +728,32 @@
         svgBg.innerHTML = bgContent;
         svgFg.innerHTML = fgContent;
         drawCutPath();
+        markMinimapDirty();
+    }
+
+    // --- 【性能优化：增量更新连线位置，避免全量 innerHTML 重建】 ---
+    // 仅在节点位置/大小变化时调用，不处理连线增删或选中状态变化
+    function updateLinePositions() {
+        const bgPaths = svgBg.querySelectorAll('path.connection-line');
+        const fgPaths = svgFg.querySelectorAll('path.connection-hitbox');
+        let ci = 0;
+        connections.forEach((conn, index) => {
+            if (!nodes[conn.from] || !nodes[conn.to]) return;
+            const start = getPortPos(conn.from, 'out'), end = getPortPos(conn.to, 'in');
+            const pathData = generateBezierPath(start, end);
+            if (bgPaths[ci]) bgPaths[ci].setAttribute('d', pathData);
+            if (fgPaths[ci]) fgPaths[ci].setAttribute('d', pathData);
+            ci++;
+        });
+        // 更新临时连线（连接模式中的虚线）
+        if (isConnecting && connectStartNodeId) {
+            const start = getPortPos(connectStartNodeId, 'out');
+            if (start.x || start.y) {
+                const tempPath = svgBg.querySelector('path[style*="stroke-dasharray"]');
+                if (tempPath) tempPath.setAttribute('d', generateBezierPath(start, tempLineEnd));
+            }
+        }
+        markMinimapDirty();
     }
 
     // --- 【触屏端：单指双击连接线删除该线】 ---
@@ -937,7 +968,7 @@
             <div class="node-touch-port" title="双击并按住拖拉出连接线"></div>
         `;
         nodesContainer.appendChild(nodeEl);
-        applyNodeColor(nodeId, themeId, customColor); renderNodeMedia(nodeId); bindNodeEvents(nodeEl, nodeId); return nodeId;
+        applyNodeColor(nodeId, themeId, customColor); renderNodeMedia(nodeId); bindNodeEvents(nodeEl, nodeId); markMinimapDirty(); return nodeId;
     }
 
     function applyNodeColor(nodeId, themeId, customColor = null) {
@@ -1076,7 +1107,7 @@
             let startW = nodes[nodeId].w, startH = nodes[nodeId].h, startX = e.clientX, startY = e.clientY;
             const doResize = (em) => {
                 nodes[nodeId].w = Math.max(200, startW + (em.clientX - startX) / scale); nodes[nodeId].h = Math.max(150, startH + (em.clientY - startY) / scale);
-                nodeEl.style.width = `${nodes[nodeId].w}px`; nodeEl.style.height = `${nodes[nodeId].h}px`; drawAllLines();
+                nodeEl.style.width = `${nodes[nodeId].w}px`; nodeEl.style.height = `${nodes[nodeId].h}px`; updateLinePositions();
             };
             const stopResize = () => { setGlobalSelect(false); window.removeEventListener('mousemove', doResize); window.removeEventListener('mouseup', stopResize); };
             window.addEventListener('mousemove', doResize); window.addEventListener('mouseup', stopResize);
@@ -1756,7 +1787,7 @@
         }
         if (isConnecting) {
             tempLineEnd = screenToWorkspace(lastX, lastY);
-            drawAllLines();
+            updateLinePositions();
         }
 
         edgeScrollInterval = requestAnimationFrame(updateEdgeScroll);
@@ -1799,7 +1830,7 @@
                 }
             }
         });
-        drawAllLines();
+        updateLinePositions();
     }
 
     // --- 【全新的iPad/触屏设备高阶Touch事件深度适配逻辑】 ---
@@ -2030,7 +2061,7 @@
                     el.style.width = `${nodes[resizeNodeTouchId].w}px`;
                     el.style.height = `${nodes[resizeNodeTouchId].h}px`;
                 }
-                drawAllLines();
+                updateLinePositions();
                 return;
             }
 
@@ -2042,7 +2073,7 @@
                 nodes[touchResizeCanvasNodeId].imgCanvasHeight = nh;
                 const el = document.querySelector(`#${touchResizeCanvasNodeId} .image-canvas-container`);
                 if (el) el.style.height = `${nh}px`;
-                drawAllLines();
+                updateLinePositions();
                 return;
             }
 
@@ -2053,7 +2084,7 @@
                 nodes[touchResizeVidListNodeId].vidListHeight = nh;
                 const el = document.querySelector(`#${touchResizeVidListNodeId} .video-list-container`);
                 if (el) el.style.height = `${nh}px`;
-                drawAllLines();
+                updateLinePositions();
                 return;
             }
 
@@ -2127,7 +2158,7 @@
                 const target = touch.target ? touch.target.closest('.node') : null;
                 document.querySelectorAll('.node.drop-target').forEach(el => el.classList.remove('drop-target'));
                 if (target && target.id !== connectStartNodeId) { target.classList.add('drop-target'); tempLineEnd = getPortPos(target.id, 'in'); }
-                drawAllLines();
+                updateLinePositions();
                 return;
             }
 
@@ -2465,7 +2496,7 @@
             const nh = Math.max(40, resizeVidListStartH + (e.clientY - resizeVidListStartY) / scale);
             nodes[resizeVidListNodeId].vidListHeight = nh;
             const el = document.querySelector(`#${resizeVidListNodeId} .video-list-container`);
-            if(el) el.style.height = `${nh}px`; drawAllLines(); return;
+            if(el) el.style.height = `${nh}px`; updateLinePositions(); return;
         }
 
         if (isCanvasSelecting && activeCanvasNodeId) {
@@ -2563,7 +2594,7 @@
             const nh = Math.max(60, resizeCanvasStartH + (e.clientY - resizeCanvasStartY) / scale);
             nodes[resizeCanvasNodeId].imgCanvasHeight = nh;
             const el = document.querySelector(`#${resizeCanvasNodeId} .image-canvas-container`);
-            if(el) el.style.height = `${nh}px`; drawAllLines(); return;
+            if(el) el.style.height = `${nh}px`; updateLinePositions(); return;
         }
 
         if (isPanning) { panX = e.clientX - startPanX; panY = e.clientY - startPanY; updateWorkspaceTransform(); return; }
@@ -2590,7 +2621,7 @@
             tempLineEnd = local; const target = e.target.closest('.node');
             document.querySelectorAll('.node.drop-target').forEach(el => el.classList.remove('drop-target'));
             if (target && target.id !== connectStartNodeId) { target.classList.add('drop-target'); tempLineEnd = getPortPos(target.id, 'in'); }
-            drawAllLines(); return;
+            updateLinePositions(); return;
         }
 
         if (!isConnecting && Object.keys(nodes).length > 0 && isBackgroundEvent({target:e.target})) {
@@ -2717,6 +2748,7 @@
         });
         selectedNodes.clear(); 
         drawAllLines();
+        markMinimapDirty();
     }
 
     function updateSelectionVisuals() {
@@ -2729,6 +2761,7 @@
             if (selectedLineIndices.has(idx)) el.classList.add('selected-line'); 
             else el.classList.remove('selected-line'); 
         });
+        markMinimapDirty();
     }
 
     const modal = document.getElementById('media-preview-modal'), previewImg = document.getElementById('preview-image'), previewVid = document.getElementById('preview-video');
@@ -2951,7 +2984,7 @@
                     el.style.top = `${nodes[id].y}px`;
                 }
             });
-            drawAllLines();
+            updateLinePositions();
         }
     });
 
@@ -3108,7 +3141,7 @@
         minimapVisible = !minimapVisible;
         minimapEl.style.display = minimapVisible ? 'block' : 'none';
         minimapToggleBtn.classList.toggle('active', minimapVisible);
-        if (minimapVisible) drawMinimap();
+        if (minimapVisible) { drawMinimap(); markMinimapDirty(); }
     });
 
     function drawMinimap() {
@@ -3209,9 +3242,9 @@
         drawMinimap();
     }
 
-    // 持续刷新小地图
+    // 持续刷新小地图：事件驱动，仅在脏标记置位时重绘
     function minimapLoop() {
-        if (minimapVisible) drawMinimap();
+        if (minimapVisible && minimapDirty) { minimapDirty = false; drawMinimap(); }
         requestAnimationFrame(minimapLoop);
     }
     requestAnimationFrame(minimapLoop);
