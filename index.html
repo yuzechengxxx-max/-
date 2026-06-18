@@ -1263,13 +1263,15 @@
                 
                 const playHandler = (e) => {
                     e.stopPropagation();
+                    if (e.type === 'touchstart') e.preventDefault();
                     const nameSpan = itemEl.querySelector('.video-name');
                     if (nameSpan.contentEditable === "true") return;
+                    if (modal.classList.contains('show')) return;
                     openVideoPreview(vid.src);
                 };
 
                 itemEl.querySelector('.video-info').addEventListener('click', playHandler);
-                itemEl.querySelector('.video-info').addEventListener('touchstart', playHandler);
+                itemEl.querySelector('.video-info').addEventListener('touchstart', playHandler, { passive: false });
                 
                 videoListWrapper.appendChild(itemEl);
             });
@@ -2824,7 +2826,7 @@
         }
 
         if (e.button === 0 && isBackgroundEvent(e)) {
-            setGlobalSelect(true); clearSelection(); isSelecting = true; const rect = workspaceContainer.getBoundingClientRect();
+            setGlobalSelect(true); if (!e.shiftKey) clearSelection(); isSelecting = true; const rect = workspaceContainer.getBoundingClientRect();
             selectionStartX = e.clientX - rect.left; selectionStartY = e.clientY - rect.top;
             selectionBox.style.left = `${selectionStartX}px`; selectionBox.style.top = `${selectionStartY}px`;
             selectionBox.style.width = '0px'; selectionBox.style.height = '0px'; selectionBox.style.display = 'block';
