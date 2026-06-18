@@ -1261,17 +1261,24 @@
                     </div>
                 `;
                 
+                let lastVidTouchTime = 0;
                 const playHandler = (e) => {
                     e.stopPropagation();
-                    if (e.type === 'touchstart') e.preventDefault();
                     const nameSpan = itemEl.querySelector('.video-name');
                     if (nameSpan.contentEditable === "true") return;
                     if (modal.classList.contains('show')) return;
+                    // 触控设备：touchstart 先开，click 合成到来时跳过
+                    if (e.type === 'touchstart') {
+                        lastVidTouchTime = Date.now();
+                        openVideoPreview(vid.src);
+                        return;
+                    }
+                    if (e.type === 'click' && Date.now() - lastVidTouchTime < 500) return;
                     openVideoPreview(vid.src);
                 };
 
                 itemEl.querySelector('.video-info').addEventListener('click', playHandler);
-                itemEl.querySelector('.video-info').addEventListener('touchstart', playHandler, { passive: false });
+                itemEl.querySelector('.video-info').addEventListener('touchstart', playHandler);
                 
                 videoListWrapper.appendChild(itemEl);
             });
