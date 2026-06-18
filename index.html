@@ -112,11 +112,11 @@
         #color-palette {
             position: absolute; top: 110%; left: 0; background: var(--node-bg);
             border: 1px solid var(--node-border); border-radius: 6px; padding: 12px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5); display: none; flex-direction: column; gap: 10px; z-index: 200; width: 220px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5); display: none; flex-direction: column; gap: 10px; z-index: 200; width: 280px;
         }
         #color-palette.show { display: flex; }
-        .swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
-        .swatch { width: 22px; height: 22px; border-radius: 4px; cursor: pointer; border: 2px solid transparent; transition: transform 0.1s, border-color 0.1s; }
+        .swatches { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; }
+        .swatch { width: 24px; height: 24px; border-radius: 4px; cursor: pointer; border: 2px solid transparent; transition: transform 0.1s, border-color 0.1s; }
         .swatch:hover { transform: scale(1.15); border-color: #fff; box-shadow: 0 0 5px rgba(0,0,0,0.5); }
         .custom-color-row { display: flex; align-items: center; justify-content: space-between; font-size: 12px; border-top: 1px solid var(--node-border); padding-top: 8px; color: var(--text-color); }
         #custom-color-input { width: 26px; height: 26px; padding: 0; border: none; border-radius: 4px; cursor: pointer; background: none; }
@@ -193,6 +193,17 @@
         .cut-path { fill: none; stroke: #ef4444; stroke-width: 3; stroke-dasharray: 6, 6; pointer-events: none; z-index: 1000; }
 
         #nodes-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
+
+        .group-box {
+            position: absolute; border-radius: 10px; pointer-events: auto; cursor: move;
+            border: 2px dashed; transition: border-color 0.2s; z-index: 0;
+        }
+        .group-box.selected-group { border-width: 3px; border-style: solid; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3); }
+        .group-label {
+            position: absolute; top: -24px; left: 0; font-size: 11px; font-weight: 600;
+            padding: 2px 8px; border-radius: 4px; white-space: nowrap; cursor: text;
+            user-select: text; -webkit-user-select: text; pointer-events: auto;
+        }
 
         .node {
             position: absolute; background-color: var(--node-bg); border: 2px solid var(--node-border); border-radius: 8px;
@@ -457,6 +468,10 @@
         <button id="grid-toggle-btn" class="left-btn active" title="开启/关闭背景点阵网格"><i class="fas fa-border-all"></i></button>
         <button id="scissors-toggle-btn" class="left-btn" title="剪刀模式：划线切断连线 (触屏/iOS推荐)"><i class="fas fa-cut"></i></button>
         <button id="minimap-toggle-btn" class="left-btn" title="小地图：观察全局布局"><i class="fas fa-map"></i></button>
+        <button id="group-btn" class="left-btn" title="编组选中节点 (Ctrl+G)"><i class="fas fa-object-group"></i></button>
+        <button id="ungroup-btn" class="left-btn" title="解散编组 (Ctrl+Shift+G)"><i class="fas fa-object-ungroup"></i></button>
+        <button id="undo-btn" class="left-btn" title="撤销 (Ctrl+Z)"><i class="fas fa-undo"></i></button>
+        <button id="redo-btn" class="left-btn" title="重做 (Ctrl+Shift+Z)"><i class="fas fa-redo"></i></button>
         <!-- 新增键鼠与触控可以选择切换的按钮，并在触控设备上高亮显示 -->
         <button id="device-toggle-btn" class="left-btn" title="手动切换 键鼠/触控 模式"><i class="fas fa-desktop"></i></button>
     </div>
@@ -464,7 +479,9 @@
     <div id="workspace">
         <!-- 背景层：用于渲染可见连接线 -->
         <svg id="svg-canvas-bg" viewBox="-50000 -50000 100000 100000"></svg>
-        <div id="nodes-container"></div>
+        <!-- 编组层：在连接线下方，节点下方 -->
+        <div id="groups-container" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none;"></div>
+        <div id="nodes-container" style="z-index: 1;"></div>
         <!-- 交互层：放在节点上方（z-index: 2），专门捕获连线点击，保证100%能够选中且极速双击断开 -->
         <svg id="svg-canvas-fg" viewBox="-50000 -50000 100000 100000"></svg>
         <!-- 智能对齐辅助线绘制层 -->
@@ -482,7 +499,9 @@
     <span id="sb-scissors" style="display:none; color:#ef4444;"><b><i class="fas fa-cut"></i> 剪刀模式: 左键划线切断连线 (松开左键退出)</b></span>
     <span><i class="fas fa-mouse-pointer"></i> 中键/手形工具: 平移画布</span>
     <span><i class="fas fa-search"></i> 滚轮: 缩放画布</span>
-    <span><i class="fas fa-copy"></i> <b>复制节点:</b> Ctrl+C/V 或 Alt+左键拖拽</span>
+    <span><i class="fas fa-copy"></i> <b>复制:</b> Ctrl+C/V</span>
+    <span><i class="fas fa-undo"></i> <b>撤销/重做:</b> Ctrl+Z / Ctrl+Shift+Z</span>
+    <span><i class="fas fa-object-group"></i> <b>编组:</b> Ctrl+G / 解散: Ctrl+Shift+G</span>
 </div>
 
 <div id="media-preview-modal">
@@ -503,35 +522,53 @@
 
     const nodeThemes = [
         { id: 0, bg: 'var(--node-bg)', header: 'var(--node-header)', border: 'var(--node-border)' },
-        { id: 1, bg: '#1f2937', header: '#111827', border: '#374151' }, 
-        { id: 2, bg: '#7f1d1d', header: '#991b1b', border: '#b91c1c' }, 
-        { id: 3, bg: '#7c2d12', header: '#9a3412', border: '#c2410c' }, 
-        { id: 4, bg: '#713f12', header: '#854d0e', border: '#a16207' }, 
-        { id: 5, bg: '#3f6212', header: '#4d7c0f', border: '#65a30d' }, 
-        { id: 6, bg: '#14532d', header: '#166534', border: '#15803d' }, 
-        { id: 7, bg: '#064e3b', header: '#065f46', border: '#059669' }, 
-        { id: 8, bg: '#164e63', header: '#0f766e', border: '#0d9488' }, 
-        { id: 9, bg: '#0c4a6e', header: '#0369a1', border: '#0284c7' }, 
-        { id: 10, bg: '#1e3a8a', header: '#1e40af', border: '#2563eb' }, 
-        { id: 11, bg: '#312e81', header: '#3730a3', border: '#4f46e5' }, 
-        { id: 12, bg: '#4c1d95', header: '#5b21b6', border: '#6d28d9' }, 
-        { id: 13, bg: '#701a75', header: '#86198f', border: '#a21caf' }, 
-        { id: 14, bg: '#831843', header: '#9d174d', border: '#be185d' }, 
-        { id: 15, bg: '#475569', header: '#374151', border: '#64748b' }, 
-        { id: 16, bg: '#ef4444', header: '#dc2626', border: '#f87171' }, 
-        { id: 17, bg: '#f97316', header: '#ea580c', border: '#fb923c' }, 
-        { id: 18, bg: '#eab308', header: '#ca8a04', border: '#facc15' }, 
-        { id: 19, bg: '#84cc16', header: '#65a30d', border: '#a3e635' }, 
-        { id: 20, bg: '#22c55e', header: '#16a34a', border: '#4ade80' }, 
-        { id: 21, bg: '#10b981', header: '#059669', border: '#34d399' }, 
-        { id: 22, bg: '#06b6d4', header: '#0891b2', border: '#22d3ee' }, 
-        { id: 23, bg: '#0ea5e9', header: '#0284c7', border: '#38bdf8' }, 
-        { id: 24, bg: '#3b82f6', header: '#2563eb', border: '#60a5fa' }, 
-        { id: 25, bg: '#6366f1', header: '#4f46e5', border: '#818cf8' }, 
-        { id: 26, bg: '#8b5cf6', header: '#7c3aed', border: '#a78bfa' }, 
-        { id: 27, bg: '#d946ef', header: '#c026d3', border: '#e879f9' }, 
-        { id: 28, bg: '#f43f5e', header: '#e11d48', border: '#fb7185' }, 
-        { id: 29, bg: '#000000', header: '#111111', border: '#333333' }  
+        // 红系
+        { id: 1, bg: '#fef2f2', header: '#fee2e2', border: '#fca5a5' },
+        { id: 2, bg: '#fce7f3', header: '#fbcfe8', border: '#f9a8d4' },
+        { id: 3, bg: '#ffe4e6', header: '#fecdd3', border: '#fda4af' },
+        { id: 4, bg: '#fff1f2', header: '#ffe4e6', border: '#fb7185' },
+        // 橙/黄系
+        { id: 5, bg: '#fff7ed', header: '#ffedd5', border: '#fdba74' },
+        { id: 6, bg: '#fffbeb', header: '#fef3c7', border: '#fcd34d' },
+        { id: 7, bg: '#fefce8', header: '#fef9c3', border: '#facc15' },
+        { id: 8, bg: '#fffbeb', header: '#fde68a', border: '#f59e0b' },
+        // 绿系
+        { id: 9, bg: '#f0fdf4', header: '#dcfce7', border: '#86efac' },
+        { id: 10, bg: '#ecfdf5', header: '#d1fae5', border: '#6ee7b7' },
+        { id: 11, bg: '#f0fdfa', header: '#ccfbf1', border: '#5eead4' },
+        { id: 12, bg: '#ecfccb', header: '#d9f99d', border: '#a3e635' },
+        // 蓝系
+        { id: 13, bg: '#eff6ff', header: '#dbeafe', border: '#93c5fd' },
+        { id: 14, bg: '#eef2ff', header: '#e0e7ff', border: '#a5b4fc' },
+        { id: 15, bg: '#f0f9ff', header: '#e0f2fe', border: '#7dd3fc' },
+        { id: 16, bg: '#ecfeff', header: '#cffafe', border: '#67e8f9' },
+        // 紫/粉系
+        { id: 17, bg: '#faf5ff', header: '#f3e8ff', border: '#c4b5fd' },
+        { id: 18, bg: '#fdf4ff', header: '#fae8ff', border: '#d8b4fe' },
+        { id: 19, bg: '#fdf2f8', header: '#fce7f3', border: '#f9a8d4' },
+        // 深色系（高饱和）
+        { id: 20, bg: '#1e293b', header: '#0f172a', border: '#334155' },
+        { id: 21, bg: '#1e1b4b', header: '#1e1b4b', border: '#4338ca' },
+        { id: 22, bg: '#14532d', header: '#166534', border: '#22c55e' },
+        { id: 23, bg: '#1e3a5f', header: '#1e40af', border: '#3b82f6' },
+        { id: 24, bg: '#7c2d12', header: '#9a3412', border: '#fb923c' },
+        { id: 25, bg: '#78350f', header: '#92400e', border: '#fbbf24' },
+        // 亮色高饱和
+        { id: 26, bg: '#ef4444', header: '#dc2626', border: '#f87171' },
+        { id: 27, bg: '#f97316', header: '#ea580c', border: '#fb923c' },
+        { id: 28, bg: '#eab308', header: '#ca8a04', border: '#facc15' },
+        { id: 29, bg: '#22c55e', header: '#16a34a', border: '#4ade80' },
+        { id: 30, bg: '#06b6d4', header: '#0891b2', border: '#22d3ee' },
+        { id: 31, bg: '#3b82f6', header: '#2563eb', border: '#60a5fa' },
+        { id: 32, bg: '#8b5cf6', header: '#7c3aed', border: '#a78bfa' },
+        { id: 33, bg: '#d946ef', header: '#c026d3', border: '#e879f9' },
+        { id: 34, bg: '#ec4899', header: '#db2777', border: '#f472b6' },
+        { id: 35, bg: '#14b8a6', header: '#0d9488', border: '#2dd4bf' },
+        // 中性
+        { id: 36, bg: '#f8fafc', header: '#f1f5f9', border: '#cbd5e1' },
+        { id: 37, bg: '#e2e8f0', header: '#cbd5e1', border: '#94a3b8' },
+        { id: 38, bg: '#94a3b8', header: '#64748b', border: '#475569' },
+        { id: 39, bg: '#334155', header: '#1e293b', border: '#0f172a' },
     ];
 
     const swatchesContainer = document.getElementById('swatches-container');
@@ -546,6 +583,7 @@
 
     let nodes = {}; 
     let connections = []; 
+    let groups = []; // [{id, nodeIds: Set, color, themeId, customColor, name}]
     let scale = 1, panX = 0, panY = 0;
     
     let isDraggingNode = false, isPanning = false, isSelecting = false, isConnecting = false;
@@ -591,6 +629,323 @@
     let edgeScrollSpeedY = 0;
     let edgeScrollInterval = null;
     let lastX = 0, lastY = 0;
+
+    // --- 【撤销/重做系统：快照历史】 ---
+    const undoHistory = [];
+    const redoHistory = [];
+    const MAX_UNDO = 50;
+
+    function saveUndoState() {
+        const snapshot = {
+            nodes: JSON.parse(JSON.stringify(nodes)),
+            connections: JSON.parse(JSON.stringify(connections)),
+            groups: JSON.parse(JSON.stringify(groups.map(g => ({...g, nodeIds: Array.from(g.nodeIds)}))))
+        };
+        undoHistory.push(snapshot);
+        if (undoHistory.length > MAX_UNDO) undoHistory.shift();
+        redoHistory.length = 0;
+    }
+
+    function undo() {
+        if (undoHistory.length === 0) return;
+        const current = { nodes: JSON.parse(JSON.stringify(nodes)), connections: JSON.parse(JSON.stringify(connections)), groups: JSON.parse(JSON.stringify(groups.map(g => ({...g, nodeIds: Array.from(g.nodeIds)})))) };
+        redoHistory.push(current);
+        restoreState(undoHistory.pop());
+    }
+
+    function redo() {
+        if (redoHistory.length === 0) return;
+        const current = { nodes: JSON.parse(JSON.stringify(nodes)), connections: JSON.parse(JSON.stringify(connections)), groups: JSON.parse(JSON.stringify(groups.map(g => ({...g, nodeIds: Array.from(g.nodeIds)})))) };
+        undoHistory.push(current);
+        restoreState(redoHistory.pop());
+    }
+
+    function restoreState(snapshot) {
+        nodesContainer.innerHTML = '';
+        nodes = snapshot.nodes;
+        connections = snapshot.connections;
+        selectedNodes.clear();
+        selectedLineIndices.clear();
+        groups = (snapshot.groups || []).map(g => ({...g, nodeIds: new Set(g.nodeIds)}));
+        Object.keys(nodes).forEach(id => {
+            const n = nodes[id];
+            createNode(n.x, n.y, n.title, n.content, n.w, n.h, id, n.themeId, n.customColor, n.images, n.videos, n.imgCanvasHeight, n.fontSize, n.vidListHeight);
+        });
+        drawAllLines();
+        updateSelectionVisuals();
+        renderAllGroups();
+        markMinimapDirty();
+    }
+
+    // ============================================================
+    //  节点编组系统
+    // ============================================================
+    let selectedGroupId = null;
+
+    function generateGroupId() { return 'grp_' + Math.random().toString(36).substr(2, 9); }
+
+    function createGroup(nodeIds, color = null, name = null) {
+        if (!nodeIds || nodeIds.length === 0) return null;
+        const groupId = generateGroupId();
+        const group = {
+            id: groupId,
+            nodeIds: new Set(nodeIds),
+            color: color || (isLightMode ? 'rgba(59,130,246,0.08)' : 'rgba(96,165,250,0.08)'),
+            borderColor: color ? color.replace(/[\d.]+\)$/, '0.35)') : (isLightMode ? 'rgba(59,130,246,0.35)' : 'rgba(96,165,250,0.35)'),
+            name: name || '编组'
+        };
+        groups.push(group);
+        renderGroup(group);
+        markMinimapDirty();
+        return group;
+    }
+
+    function deleteGroup(groupId) {
+        const idx = groups.findIndex(g => g.id === groupId);
+        if (idx === -1) return;
+        const g = groups[idx];
+        const el = document.getElementById(groupId);
+        if (el) el.remove();
+        groups.splice(idx, 1);
+        if (selectedGroupId === groupId) selectedGroupId = null;
+        markMinimapDirty();
+    }
+
+    function renderGroup(group) {
+        let el = document.getElementById(group.id);
+        if (!el) {
+            el = document.createElement('div');
+            el.className = 'group-box';
+            el.id = group.id;
+            document.getElementById('groups-container').appendChild(el);
+            // Group drag
+            el.addEventListener('mousedown', (e) => {
+                if (isScissorsMode) return;
+                e.stopPropagation();
+                saveUndoState();
+                selectedGroupId = group.id;
+                document.querySelectorAll('.group-box').forEach(g => g.classList.remove('selected-group'));
+                el.classList.add('selected-group');
+                const startMX = e.clientX, startMY = e.clientY;
+                const startPos = {};
+                group.nodeIds.forEach(id => { if (nodes[id]) startPos[id] = { x: nodes[id].x, y: nodes[id].y }; });
+                const onMove = (ev) => {
+                    const dx = (ev.clientX - startMX) / scale, dy = (ev.clientY - startMY) / scale;
+                    group.nodeIds.forEach(id => {
+                        if (nodes[id] && startPos[id]) {
+                            nodes[id].x = startPos[id].x + dx;
+                            nodes[id].y = startPos[id].y + dy;
+                            const nel = document.getElementById(id);
+                            if (nel) { nel.style.left = `${nodes[id].x}px`; nel.style.top = `${nodes[id].y}px`; }
+                        }
+                    });
+                    updateGroupBounds(group);
+                    updateLinePositions();
+                };
+                const onUp = () => {
+                    window.removeEventListener('mousemove', onMove);
+                    window.removeEventListener('mouseup', onUp);
+                    checkNodeGroupMembership();
+                    markMinimapDirty();
+                };
+                window.addEventListener('mousemove', onMove);
+                window.addEventListener('mouseup', onUp);
+            });
+            // Touch support for group drag
+            el.addEventListener('touchstart', (e) => {
+                if (!isTouchMode || e.touches.length !== 1) return;
+                e.preventDefault(); e.stopPropagation();
+                saveUndoState();
+                const touch = e.touches[0];
+                selectedGroupId = group.id;
+                document.querySelectorAll('.group-box').forEach(g => g.classList.remove('selected-group'));
+                el.classList.add('selected-group');
+                const startMX = touch.clientX, startMY = touch.clientY;
+                const startPos = {};
+                group.nodeIds.forEach(id => { if (nodes[id]) startPos[id] = { x: nodes[id].x, y: nodes[id].y }; });
+                const onMove = (ev) => {
+                    if (ev.touches.length !== 1) return;
+                    const t = ev.touches[0];
+                    const dx = (t.clientX - startMX) / scale, dy = (t.clientY - startMY) / scale;
+                    group.nodeIds.forEach(id => {
+                        if (nodes[id] && startPos[id]) {
+                            nodes[id].x = startPos[id].x + dx;
+                            nodes[id].y = startPos[id].y + dy;
+                            const nel = document.getElementById(id);
+                            if (nel) { nel.style.left = `${nodes[id].x}px`; nel.style.top = `${nodes[id].y}px`; }
+                        }
+                    });
+                    updateGroupBounds(group);
+                    updateLinePositions();
+                };
+                const onEnd = () => {
+                    window.removeEventListener('touchmove', onMove);
+                    window.removeEventListener('touchend', onEnd);
+                    checkNodeGroupMembership();
+                    markMinimapDirty();
+                };
+                window.addEventListener('touchmove', onMove, { passive: false });
+                window.addEventListener('touchend', onEnd);
+            }, { passive: false });
+            // Double click to edit name
+            el.addEventListener('dblclick', (e) => {
+                e.stopPropagation();
+                const label = el.querySelector('.group-label');
+                if (label) { label.contentEditable = true; label.focus(); }
+            });
+        }
+        updateGroupBounds(group);
+        // Update color
+        el.style.backgroundColor = group.color;
+        el.style.borderColor = group.borderColor;
+        // Update or create label
+        let label = el.querySelector('.group-label');
+        if (!label) {
+            label = document.createElement('div');
+            label.className = 'group-label';
+            el.appendChild(label);
+            label.addEventListener('blur', () => { label.contentEditable = false; group.name = label.textContent.trim() || '编组'; });
+            label.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); label.blur(); } });
+        }
+        label.textContent = group.name;
+        label.style.backgroundColor = group.borderColor;
+        label.style.color = isLightMode ? '#1f2937' : '#e0e0e0';
+    }
+
+    function updateGroupBounds(group) {
+        const el = document.getElementById(group.id);
+        if (!el) return;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        group.nodeIds.forEach(id => {
+            const n = nodes[id];
+            if (!n) return;
+            minX = Math.min(minX, n.x);
+            minY = Math.min(minY, n.y);
+            maxX = Math.max(maxX, n.x + n.w);
+            maxY = Math.max(maxY, n.y + n.h);
+        });
+        if (minX === Infinity) return;
+        const pad = 20;
+        el.style.left = `${minX - pad}px`;
+        el.style.top = `${minY - pad}px`;
+        el.style.width = `${maxX - minX + pad * 2}px`;
+        el.style.height = `${maxY - minY + pad * 2}px`;
+    }
+
+    function renderAllGroups() {
+        // Remove existing group DOM elements
+        document.querySelectorAll('.group-box').forEach(el => el.remove());
+        groups.forEach(g => renderGroup(g));
+    }
+
+    function groupSelectedNodes() {
+        if (selectedNodes.size < 2) return;
+        saveUndoState();
+        const nodeIds = Array.from(selectedNodes);
+        // Remove nodes from existing groups
+        nodeIds.forEach(id => removeNodeFromGroup(id));
+        createGroup(nodeIds);
+    }
+
+    function ungroupSelectedNodes() {
+        if (selectedNodes.size === 0) return;
+        saveUndoState();
+        const toRemove = new Set();
+        groups.forEach(g => {
+            let hasSelected = false;
+            selectedNodes.forEach(id => { if (g.nodeIds.has(id)) hasSelected = true; });
+            if (hasSelected) toRemove.add(g.id);
+        });
+        toRemove.forEach(gid => deleteGroup(gid));
+    }
+
+    function removeNodeFromGroup(nodeId) {
+        groups.forEach(g => {
+            if (g.nodeIds.has(nodeId)) {
+                g.nodeIds.delete(nodeId);
+                if (g.nodeIds.size === 0) {
+                    deleteGroup(g.id);
+                } else {
+                    updateGroupBounds(g);
+                }
+            }
+        });
+    }
+
+    function checkNodeGroupMembership() {
+        // Check if any node has been dragged out of its group bounds
+        groups.forEach(g => {
+            const toRemove = [];
+            g.nodeIds.forEach(id => {
+                const n = nodes[id];
+                if (!n) { toRemove.push(id); return; }
+                // Get group bounds
+                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                g.nodeIds.forEach(mid => {
+                    const mn = nodes[mid];
+                    if (!mn) return;
+                    minX = Math.min(minX, mn.x);
+                    minY = Math.min(minY, mn.y);
+                    maxX = Math.max(maxX, mn.x + mn.w);
+                    maxY = Math.max(maxY, mn.y + mn.h);
+                });
+                const pad = 20;
+                // Check if node center is outside group bounds
+                const cx = n.x + n.w / 2, cy = n.y + n.h / 2;
+                if (cx < minX - pad || cx > maxX + pad || cy < minY - pad || cy > maxY + pad) {
+                    toRemove.push(id);
+                }
+            });
+            toRemove.forEach(id => g.nodeIds.delete(id));
+            if (g.nodeIds.size === 0) deleteGroup(g.id);
+            else updateGroupBounds(g);
+        });
+    }
+
+    function checkNodeAutoJoin() {
+        // Check if any ungrouped node is inside a group's bounds
+        const ungrouped = Object.keys(nodes).filter(id => {
+            return !groups.some(g => g.nodeIds.has(id));
+        });
+        ungrouped.forEach(id => {
+            const n = nodes[id];
+            if (!n) return;
+            const cx = n.x + n.w / 2, cy = n.y + n.h / 2;
+            groups.forEach(g => {
+                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                g.nodeIds.forEach(mid => {
+                    const mn = nodes[mid];
+                    if (!mn) return;
+                    minX = Math.min(minX, mn.x);
+                    minY = Math.min(minY, mn.y);
+                    maxX = Math.max(maxX, mn.x + mn.w);
+                    maxY = Math.max(maxY, mn.y + mn.h);
+                });
+                if (minX === Infinity) return;
+                const pad = 20;
+                if (cx >= minX - pad && cx <= maxX + pad && cy >= minY - pad && cy <= maxY + pad) {
+                    g.nodeIds.add(id);
+                    updateGroupBounds(g);
+                }
+            });
+        });
+    }
+
+    function applyGroupColor(groupId, color) {
+        const g = groups.find(gr => gr.id === groupId);
+        if (!g) return;
+        // Convert any color to low-opacity RGBA
+        const tmpEl = document.createElement('div');
+        tmpEl.style.color = color;
+        document.body.appendChild(tmpEl);
+        const computed = getComputedStyle(tmpEl).color;
+        document.body.removeChild(tmpEl);
+        // computed is like "rgb(r, g, b)"
+        g.color = computed.replace('rgb(', 'rgba(').replace(')', ', 0.08)');
+        g.borderColor = computed.replace('rgb(', 'rgba(').replace(')', ', 0.35)');
+        renderGroup(g);
+        markMinimapDirty();
+    }
 
     // --- 【LOD (Level of Detail) 记忆状态】 ---
     let lastLODState = false;
@@ -1097,10 +1452,10 @@
         const titleEl = nodeEl.querySelector('.node-title'); const contentEl = nodeEl.querySelector('.node-textarea');
         titleEl.addEventListener('input', () => { nodes[nodeId].title = titleEl.value; });
         contentEl.addEventListener('input', () => { nodes[nodeId].content = contentEl.value; });
-        nodeEl.querySelector('.node-delete-btn').addEventListener('click', (e) => { e.stopPropagation(); selectedNodes.add(nodeId); deleteSelectedNodes(); });
+        nodeEl.querySelector('.node-delete-btn').addEventListener('click', (e) => { e.stopPropagation(); selectedNodes.add(nodeId); saveUndoState(); deleteSelectedNodes(); });
 
-        nodeEl.querySelector('.btn-font-minus').addEventListener('click', (e) => { e.stopPropagation(); const n = nodes[nodeId]; n.fontSize = Math.max(10, (n.fontSize || 14) - 2); contentEl.style.fontSize = `${n.fontSize}px`; });
-        nodeEl.querySelector('.btn-font-plus').addEventListener('click', (e) => { e.stopPropagation(); const n = nodes[nodeId]; n.fontSize = Math.min(48, (n.fontSize || 14) + 2); contentEl.style.fontSize = `${n.fontSize}px`; });
+        nodeEl.querySelector('.btn-font-minus').addEventListener('click', (e) => { e.stopPropagation(); saveUndoState(); const n = nodes[nodeId]; n.fontSize = Math.max(10, (n.fontSize || 14) - 2); contentEl.style.fontSize = `${n.fontSize}px`; });
+        nodeEl.querySelector('.btn-font-plus').addEventListener('click', (e) => { e.stopPropagation(); saveUndoState(); const n = nodes[nodeId]; n.fontSize = Math.min(48, (n.fontSize || 14) + 2); contentEl.style.fontSize = `${n.fontSize}px`; });
 
         nodeEl.querySelector('.resize-handle').addEventListener('mousedown', (e) => {
             if (isScissorsMode) return; e.stopPropagation(); setGlobalSelect(true);
@@ -1800,6 +2155,7 @@
         // --- 【按住 Alt 拖动克隆实时生成判定】 ---
         if (e && e.altKey && !altDraggingCopied) {
             altDraggingCopied = true;
+            saveUndoState();
             performPasteNodes(0); // 瞬间就地物理克隆
             
             // 将拖动初始位置转移给新的复制集
@@ -1925,6 +2281,7 @@
                     selectedNodes.add(nodeEl.id);
                 }
                 updateSelectionVisuals();
+                saveUndoState();
                 isDraggingNode = true;
                 dragStartMouseX = touch.clientX;
                 dragStartMouseY = touch.clientY;
@@ -2111,7 +2468,7 @@
                         if (doSegmentsIntersect(cutPath[cutPath.length-2] || mouseWorkspace, mouseWorkspace, prevP, curP)) { hit = true; break; }
                         prevP = curP;
                     }
-                    if (hit) { connections.splice(i, 1); selectedLineIndices.delete(i); drawAllLines(); }
+                    if (hit) { saveUndoState(); connections.splice(i, 1); selectedLineIndices.delete(i); drawAllLines(); }
                 }
                 return;
             }
@@ -2286,6 +2643,7 @@
                 if (hitNodeId) {
                     // 碰撞成功：秒级接通连线线路
                     if (!connections.find(c => c.from === connectStartNodeId && c.to === hitNodeId)) {
+                        saveUndoState();
                         connections.push({ from: connectStartNodeId, to: hitNodeId });
                     }
                 }
@@ -2320,6 +2678,8 @@
             selectionBox.style.display = 'none';
             document.body.classList.remove('grabbing');
             clearSnapGuidelines();
+            checkNodeGroupMembership();
+            checkNodeAutoJoin();
         }
     });
 
@@ -2440,13 +2800,23 @@
                 performCopySelectedNodes(); 
                 altDraggingCopied = false;  
             } else {
-                if (!selectedNodes.has(nodeEl.id)) { 
-                    if (!e.shiftKey) clearSelection(); 
-                    selectedNodes.add(nodeEl.id); 
+                if (e.shiftKey) {
+                    // Shift+click: toggle selection
+                    if (selectedNodes.has(nodeEl.id)) {
+                        selectedNodes.delete(nodeEl.id);
+                    } else {
+                        selectedNodes.add(nodeEl.id);
+                    }
+                } else {
+                    if (!selectedNodes.has(nodeEl.id)) { 
+                        clearSelection(); 
+                        selectedNodes.add(nodeEl.id); 
+                    }
                 }
             }
 
             updateSelectionVisuals();
+            saveUndoState();
             isDraggingNode = true; dragStartMouseX = e.clientX; dragStartMouseY = e.clientY;
             draggedNodesInitialPositions = {};
             selectedNodes.forEach(id => { if(nodes[id]) draggedNodesInitialPositions[id] = {x:nodes[id].x, y:nodes[id].y}; });
@@ -2482,7 +2852,7 @@
                     if (doSegmentsIntersect(cutPath[cutPath.length-2] || mouseWorkspace, mouseWorkspace, prevP, curP)) { hit = true; break; }
                     prevP = curP;
                 }
-                if (hit) { connections.splice(i, 1); selectedLineIndices.delete(i); drawAllLines(); }
+                if (hit) { saveUndoState(); connections.splice(i, 1); selectedLineIndices.delete(i); drawAllLines(); }
             }
             return;
         }
@@ -2664,6 +3034,8 @@
         altDraggingCopied = false; 
 
         clearSnapGuidelines();
+        checkNodeGroupMembership();
+        checkNodeAutoJoin();
 
         if (isResizingVidList) isResizingVidList = false;
         if (isResizingMiniImg) isResizingMiniImg = false;
@@ -2676,7 +3048,7 @@
         if (isConnecting) {
             const target = document.querySelector('.node.drop-target');
             if (target && connectStartNodeId && target.id !== connectStartNodeId) {
-                if (!connections.find(c => c.from === connectStartNodeId && c.to === target.id)) connections.push({ from: connectStartNodeId, to: target.id });
+                if (!connections.find(c => c.from === connectStartNodeId && c.to === target.id)) { saveUndoState(); connections.push({ from: connectStartNodeId, to: target.id }); }
                 target.classList.remove('drop-target');
             }
             isConnecting = false; connectStartNodeId = null; drawAllLines();
@@ -2698,7 +3070,7 @@
         if (isScissorsMode) return;
         if (document.getElementById('media-preview-modal').classList.contains('show')) return;
         if (e.target.closest('.node') || e.target.closest('#toolbar') || e.target.closest('#left-toolbar')) return;
-        if (e.button === 0 && isBackgroundEvent(e)) { const l = screenToWorkspace(e.clientX, e.clientY); createNode(l.x - 120, l.y - 100); }
+        if (e.button === 0 && isBackgroundEvent(e)) { const l = screenToWorkspace(e.clientX, e.clientY); saveUndoState(); createNode(l.x - 120, l.y - 100); }
     });
 
     window.addEventListener('keydown', (e) => {
@@ -2712,21 +3084,56 @@
         }
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
             e.preventDefault();
+            saveUndoState();
             performPasteNodes(30); 
+            return;
+        }
+
+        // --- 【Ctrl + Z / Ctrl + Shift + Z 撤销重做】 ---
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+            e.preventDefault();
+            undo();
+            return;
+        }
+        if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) {
+            e.preventDefault();
+            redo();
+            return;
+        }
+
+        // --- 【Ctrl + G / Ctrl + Shift + G 编组/解散】 ---
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g' && !e.shiftKey) {
+            e.preventDefault();
+            groupSelectedNodes();
+            return;
+        }
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g' && e.shiftKey) {
+            e.preventDefault();
+            ungroupSelectedNodes();
+            return;
+        }
+
+        // --- 【Ctrl + A 全选】 ---
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+            e.preventDefault();
+            Object.keys(nodes).forEach(id => selectedNodes.add(id));
+            updateSelectionVisuals();
             return;
         }
 
         if (e.key === 'Delete' || e.key === 'Backspace') {
             if (selectedMiniImgs.size > 0 && activeCanvasNodeId) {
                 const n = nodes[activeCanvasNodeId];
-                if (n) { n.images = n.images.filter(i => !selectedMiniImgs.has(i.id)); renderNodeMedia(activeCanvasNodeId); }
+                if (n) { saveUndoState(); n.images = n.images.filter(i => !selectedMiniImgs.has(i.id)); renderNodeMedia(activeCanvasNodeId); }
                 selectedMiniImgs.clear(); return;
             }
             if (selectedLineIndices.size > 0) {
+                saveUndoState();
                 const sortedIndices = Array.from(selectedLineIndices).sort((a, b) => b - a);
                 sortedIndices.forEach(idx => connections.splice(idx, 1));
                 selectedLineIndices.clear(); drawAllLines();
             }
+            saveUndoState();
             deleteSelectedNodes();
         }
     });
@@ -2735,6 +3142,8 @@
     function clearSelection() { 
         selectedNodes.clear(); 
         selectedLineIndices.clear(); 
+        selectedGroupId = null;
+        document.querySelectorAll('.group-box').forEach(g => g.classList.remove('selected-group'));
         updateSelectionVisuals(); 
     }
     
@@ -2841,11 +3250,15 @@
 
     document.getElementById('add-node-btn').addEventListener('click', () => { const c = screenToWorkspace(window.innerWidth / 2, window.innerHeight / 2); createNode(c.x - 120, c.y - 100); });
     
+    document.getElementById('undo-btn').addEventListener('click', () => undo());
+    document.getElementById('redo-btn').addEventListener('click', () => redo());
+
     // --- 【重点攻坚】：完美离线打包 Base64 下载，让 iPad/手机等移动 Safari 与 Chrome 100% 呼出保存
     document.getElementById('save-btn').addEventListener('click', async () => {
         const exportNodes = JSON.parse(JSON.stringify(nodes));
         for(let id in exportNodes) exportNodes[id].videos.forEach(v => { if(v.src.startsWith('blob:')) v.src = v.name; });
-        const dataStr = JSON.stringify({ nodes: exportNodes, connections, scale, panX, panY });
+        const exportGroups = groups.map(g => ({id: g.id, nodeIds: Array.from(g.nodeIds), color: g.color, borderColor: g.borderColor, name: g.name}));
+        const dataStr = JSON.stringify({ nodes: exportNodes, connections, groups: exportGroups, scale, panX, panY });
         
         // 1. 尝试高级电脑端文件保存句柄 picker 
         try {
@@ -2902,7 +3315,8 @@
                 try {
                     const data = JSON.parse(ev.target.result);
                     if (data && data.nodes && data.connections) {
-                        nodesContainer.innerHTML = ''; svgBg.innerHTML = ''; svgFg.innerHTML = ''; nodes = {}; connections = []; selectedNodes.clear(); selectedLineIndices.clear();
+                        saveUndoState();
+                        nodesContainer.innerHTML = ''; svgBg.innerHTML = ''; svgFg.innerHTML = ''; document.getElementById('groups-container').innerHTML = ''; nodes = {}; connections = []; groups = []; selectedNodes.clear(); selectedLineIndices.clear();
                         scale = data.scale || 1; panX = data.panX || 0; panY = data.panY || 0; updateWorkspaceTransform();
                         nodes = data.nodes;
                         Object.keys(nodes).forEach(id => {
@@ -2911,6 +3325,10 @@
                             createNode(n.x, n.y, n.title, n.content, n.w, n.h, id, n.themeId, n.customColor, n.images, n.videos, n.imgCanvasHeight, n.fontSize, n.vidListHeight);
                         });
                         connections = data.connections; drawAllLines();
+                        if (data.groups) {
+                            groups = data.groups.map(g => ({...g, nodeIds: new Set(g.nodeIds)}));
+                            renderAllGroups();
+                        }
                     }
                 } catch (err) { alert("读取存档失败！文件格式不正确或已损坏。"); }
             };
@@ -2948,12 +3366,19 @@
 
     document.querySelectorAll('.swatch').forEach(s => s.addEventListener('click', (e) => {
         e.stopPropagation(); 
-        if (selectedNodes.size > 0) selectedNodes.forEach(id => applyNodeColor(id, parseInt(s.dataset.theme), null));
+        if (selectedGroupId) {
+            saveUndoState();
+            const theme = nodeThemes[parseInt(s.dataset.theme)];
+            if (theme) applyGroupColor(selectedGroupId, theme.header);
+        } else if (selectedNodes.size > 0) { saveUndoState(); selectedNodes.forEach(id => applyNodeColor(id, parseInt(s.dataset.theme), null)); }
         document.getElementById('color-palette').classList.remove('show');
     }));
 
     document.getElementById('custom-color-input').addEventListener('input', (e) => { 
-        if (selectedNodes.size > 0) selectedNodes.forEach(id => applyNodeColor(id, null, e.target.value)); 
+        if (selectedGroupId) {
+            saveUndoState();
+            applyGroupColor(selectedGroupId, e.target.value);
+        } else if (selectedNodes.size > 0) { saveUndoState(); selectedNodes.forEach(id => applyNodeColor(id, null, e.target.value)); }
     });
 
     // --- 【悬浮按钮事件绑定】 ---
@@ -3013,6 +3438,15 @@
     scissorsToggleBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         toggleScissorsMode();
+    });
+
+    document.getElementById('group-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        groupSelectedNodes();
+    });
+    document.getElementById('ungroup-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        ungroupSelectedNodes();
     });
 
     // --- 【设备识别与键鼠/触控动态转换器】 ---
@@ -3179,6 +3613,27 @@
         function toMini(wx, wy) {
             return { x: offX + (wx - minX) * fitScale, y: offY + (wy - minY) * fitScale };
         }
+
+        // 编组
+        groups.forEach(g => {
+            let gMinX = Infinity, gMinY = Infinity, gMaxX = -Infinity, gMaxY = -Infinity;
+            g.nodeIds.forEach(id => {
+                const n = nodes[id];
+                if (!n) return;
+                gMinX = Math.min(gMinX, n.x);
+                gMinY = Math.min(gMinY, n.y);
+                gMaxX = Math.max(gMaxX, n.x + n.w);
+                gMaxY = Math.max(gMaxY, n.y + n.h);
+            });
+            if (gMinX === Infinity) return;
+            const gp1 = toMini(gMinX - 20, gMinY - 20);
+            const gp2 = toMini(gMaxX + 20, gMaxY + 20);
+            minimapCtx.fillStyle = g.color;
+            minimapCtx.fillRect(gp1.x, gp1.y, gp2.x - gp1.x, gp2.y - gp1.y);
+            minimapCtx.strokeStyle = g.borderColor;
+            minimapCtx.lineWidth = 1;
+            minimapCtx.strokeRect(gp1.x, gp1.y, gp2.x - gp1.x, gp2.y - gp1.y);
+        });
 
         // 连线
         minimapCtx.strokeStyle = isLightMode ? 'rgba(59,130,246,0.35)' : 'rgba(96,165,250,0.45)';
