@@ -194,9 +194,6 @@
         .connection-hitbox { fill: none; stroke: transparent; stroke-width: 25; cursor: pointer; pointer-events: stroke; }
         .cut-path { fill: none; stroke: #ef4444; stroke-width: 3; stroke-dasharray: 6, 6; pointer-events: none; z-index: 1000; }
 
-        /* touch-action: none 替代 JS preventDefault，允许父级 touchstart 使用 passive */
-        .mini-img-wrapper, .mini-img-wrapper .mh-resize, .mini-img-wrapper .mh-rotate-handle, .image-canvas-container, .video-list-resizer, .image-canvas-resizer { touch-action: none; }
-
         #nodes-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
 
         .group-box {
@@ -1376,6 +1373,8 @@
                 };
 
                 itemEl.querySelector('.video-info').addEventListener('click', playHandler);
+                // 阻止 touchstart 冒泡到 gallery handler（gallery 有 passive:false 会抑制 iOS click 合成）
+                itemEl.querySelector('.video-info').addEventListener('touchstart', (e) => { e.stopPropagation(); }, { passive: true });
                 
                 videoListWrapper.appendChild(itemEl);
             });
@@ -1861,7 +1860,7 @@
                 touchResizeCanvasStartH = nodes[nodeId].imgCanvasHeight || 120;
                 return;
             }
-        }, { passive: true });
+        }, { passive: false });
 
         // --- gallery专属touchmove：直接在gallery上处理图片操作，不依赖workspaceContainer冒泡 ---
         gallery.addEventListener('touchmove', (e) => {
