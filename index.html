@@ -362,7 +362,7 @@
         .preview-image-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; overflow: hidden; pointer-events: none; }
         #preview-image { max-width: 90vw; max-height: 90vh; object-fit: contain; box-shadow: 0 10px 30px rgba(0,0,0,0.5); cursor: grab; display: none; transform-origin: center center; pointer-events: auto; }
         #preview-image:active { cursor: grabbing; }
-        #preview-video { position: relative; z-index: 10; width: 80vw; height: 70vh; max-width: 90%; max-height: 90%; object-fit: contain; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 2px solid #555; display: none; outline: none; pointer-events: auto; background: #000; }
+        #preview-video { position: relative; z-index: 10; max-width: 90%; max-height: 90%; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 2px solid #555; display: none; outline: none; pointer-events: auto; }
         .preview-tip { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.6); font-size: 14px; pointer-events: none; background: rgba(0,0,0,0.5); padding: 6px 12px; border-radius: 20px; z-index: 20;}
 
         /* 状态栏 */
@@ -515,7 +515,7 @@
     <div class="preview-tip" id="preview-image-tip">滚轮缩放 | 按住拖拽平移 | 双击背景退出</div>
     <div class="preview-tip" id="preview-video-tip" style="display:none;">双击背景退出</div>
     <div class="preview-image-container"><img id="preview-image" src="" alt="预览" draggable="false"></div>
-    <video id="preview-video" controls playsinline webkitplaysinline preload="auto"></video>
+    <video id="preview-video" controls></video>
 </div>
 
 <input type="file" id="image-upload-input" style="display: none;" accept="image/*" multiple>
@@ -1375,6 +1375,7 @@
                 };
 
                 itemEl.querySelector('.video-info').addEventListener('click', playHandler);
+                itemEl.querySelector('.video-info').addEventListener('touchstart', playHandler);
                 
                 videoListWrapper.appendChild(itemEl);
             });
@@ -3284,33 +3285,13 @@
     window.openImagePreview = openImagePreview;
 
     function openVideoPreview(src) { 
-        if (!src.startsWith('blob:') && !src.startsWith('http')) { alert('本地视频因安全机制(桌面端打包)无法记录绝对路径。\n请点击右侧"关联"图标重新选择该视频文件。'); return; }
-        previewVid.style.display = 'block';
-        previewImg.style.display = 'none';
+        previewVid.src = src; previewVid.style.display = 'block'; previewImg.style.display = 'none';
         document.getElementById('preview-video-tip').style.display = 'block';
         document.getElementById('preview-image-tip').style.display = 'none';
-        modal.classList.add('show');
-        previewVid.src = src;
-        // 尝试自动播放，失败则显示手动播放按钮
-        const playPromise = previewVid.play();
-        if (playPromise !== undefined) {
-            playPromise.catch(() => {
-                // 自动播放被阻止，显示一个播放按钮覆盖层
-                let playBtn = document.getElementById('mobile-play-btn');
-                if (!playBtn) {
-                    playBtn = document.createElement('div');
-                    playBtn.id = 'mobile-play-btn';
-                    playBtn.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:99999;width:64px;height:64px;border-radius:50%;background:rgba(0,0,0,0.6);border:2px solid rgba(255,255,255,0.5);display:flex;align-items:center;justify-content:center;cursor:pointer;';
-                    playBtn.innerHTML = '<svg width="28" height="28" viewBox="0 0 24 24" fill="white"><polygon points="6,3 20,12 6,21"/></svg>';
-                    modal.appendChild(playBtn);
-                }
-                playBtn.style.display = 'flex';
-                playBtn.onclick = (ev) => { ev.stopPropagation(); previewVid.play(); playBtn.style.display = 'none'; };
-            });
-        }
+        modal.classList.add('show'); previewVid.play();
     }
     function updatePreviewImgTransform() { previewImg.style.transform = `translate(${previewImgPanX}px, ${previewImgPanY}px) scale(${previewImgScale})`; }
-    function closePreview() { modal.classList.remove('show'); if(previewVid.style.display === 'block') { previewVid.pause(); previewVid.src = ''; } const pb = document.getElementById('mobile-play-btn'); if (pb) pb.style.display = 'none'; }
+    function closePreview() { modal.classList.remove('show'); if(previewVid.style.display === 'block') { previewVid.pause(); previewVid.src = ''; } }
     
     modal.addEventListener('click', (e) => { if(e.target === modal || e.target.classList.contains('preview-image-container')) closePreview(); });
     modal.addEventListener('dblclick', () => { if(previewImg.style.display === 'block') closePreview(); });
