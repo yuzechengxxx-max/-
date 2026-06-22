@@ -3285,13 +3285,13 @@
 
     function openVideoPreview(src) { 
         if (!src.startsWith('blob:') && !src.startsWith('http')) { alert('本地视频因安全机制(桌面端打包)无法记录绝对路径。\n请点击右侧"关联"图标重新选择该视频文件。'); return; }
-        previewVid.src = src;
+        // 先显示再设 src，确保移动端浏览器能正确加载
         previewVid.style.display = 'block';
         previewImg.style.display = 'none';
         document.getElementById('preview-video-tip').style.display = 'block';
         document.getElementById('preview-image-tip').style.display = 'none';
         modal.classList.add('show');
-        previewVid.load();
+        previewVid.src = src;
         previewVid.play().catch(() => {});
     }
     function updatePreviewImgTransform() { previewImg.style.transform = `translate(${previewImgPanX}px, ${previewImgPanY}px) scale(${previewImgScale})`; }
@@ -3559,8 +3559,21 @@
     // --- 【设备识别与键鼠/触控动态转换器】 ---
     function detectDeviceAndApply() {
         const hasTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-        isTouchMode = hasTouch;
+        const hasMouse = window.matchMedia('(pointer:fine)').matches;
+        // 纯触屏设备（手机/iPad无鼠标）→ 触控模式；有鼠标的设备 → 键鼠模式
+        isTouchMode = hasTouch && !hasMouse;
         updateDeviceUI();
+        // 如果初始判定为键鼠，但后续收到 touchstart，自动切换为触控
+        if (!isTouchMode) {
+            const autoSwitch = (e) => {
+                if (e.touches && e.touches.length > 0) {
+                    isTouchMode = true;
+                    updateDeviceUI();
+                    workspaceContainer.removeEventListener('touchstart', autoSwitch);
+                }
+            };
+            workspaceContainer.addEventListener('touchstart', autoSwitch);
+        }
     }
 
     function updateDeviceUI() {
