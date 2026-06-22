@@ -3285,17 +3285,32 @@
 
     function openVideoPreview(src) { 
         if (!src.startsWith('blob:') && !src.startsWith('http')) { alert('本地视频因安全机制(桌面端打包)无法记录绝对路径。\n请点击右侧"关联"图标重新选择该视频文件。'); return; }
-        // 先显示再设 src，确保移动端浏览器能正确加载
         previewVid.style.display = 'block';
         previewImg.style.display = 'none';
         document.getElementById('preview-video-tip').style.display = 'block';
         document.getElementById('preview-image-tip').style.display = 'none';
         modal.classList.add('show');
         previewVid.src = src;
-        previewVid.play().catch(() => {});
+        // 尝试自动播放，失败则显示手动播放按钮
+        const playPromise = previewVid.play();
+        if (playPromise !== undefined) {
+            playPromise.catch(() => {
+                // 自动播放被阻止，显示一个播放按钮覆盖层
+                let playBtn = document.getElementById('mobile-play-btn');
+                if (!playBtn) {
+                    playBtn = document.createElement('div');
+                    playBtn.id = 'mobile-play-btn';
+                    playBtn.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:99999;width:64px;height:64px;border-radius:50%;background:rgba(0,0,0,0.6);border:2px solid rgba(255,255,255,0.5);display:flex;align-items:center;justify-content:center;cursor:pointer;';
+                    playBtn.innerHTML = '<svg width="28" height="28" viewBox="0 0 24 24" fill="white"><polygon points="6,3 20,12 6,21"/></svg>';
+                    modal.appendChild(playBtn);
+                }
+                playBtn.style.display = 'flex';
+                playBtn.onclick = (ev) => { ev.stopPropagation(); previewVid.play(); playBtn.style.display = 'none'; };
+            });
+        }
     }
     function updatePreviewImgTransform() { previewImg.style.transform = `translate(${previewImgPanX}px, ${previewImgPanY}px) scale(${previewImgScale})`; }
-    function closePreview() { modal.classList.remove('show'); if(previewVid.style.display === 'block') { previewVid.pause(); previewVid.src = ''; } }
+    function closePreview() { modal.classList.remove('show'); if(previewVid.style.display === 'block') { previewVid.pause(); previewVid.src = ''; } const pb = document.getElementById('mobile-play-btn'); if (pb) pb.style.display = 'none'; }
     
     modal.addEventListener('click', (e) => { if(e.target === modal || e.target.classList.contains('preview-image-container')) closePreview(); });
     modal.addEventListener('dblclick', () => { if(previewImg.style.display === 'block') closePreview(); });
