@@ -112,11 +112,14 @@
         #color-palette {
             position: absolute; top: 110%; left: 0; background: var(--node-bg);
             border: 1px solid var(--node-border); border-radius: 6px; padding: 12px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5); display: none; flex-direction: column; gap: 10px; z-index: 200; width: 280px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5); display: none; flex-direction: column; gap: 10px; z-index: 200; width: auto;
         }
         #color-palette.show { display: flex; }
-        .swatches { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; }
-        .swatch { width: 24px; height: 24px; border-radius: 4px; cursor: pointer; border: 2px solid transparent; transition: transform 0.1s, border-color 0.1s; }
+        .color-section-label { font-size: 11px; color: var(--btn-text); margin-bottom: 2px; }
+        .swatches { display: grid; gap: 3px; }
+        #swatches-theme { grid-template-columns: repeat(10, 1fr); }
+        #swatches-standard { grid-template-columns: repeat(10, 1fr); }
+        .swatch { width: 22px; height: 22px; border-radius: 3px; cursor: pointer; border: 1px solid rgba(128,128,128,0.2); transition: transform 0.1s, border-color 0.1s; }
         .swatch:hover { transform: scale(1.15); border-color: #fff; box-shadow: 0 0 5px rgba(0,0,0,0.5); }
         .custom-color-row { display: flex; align-items: center; justify-content: space-between; font-size: 12px; border-top: 1px solid var(--node-border); padding-top: 8px; color: var(--text-color); }
         #custom-color-input { width: 26px; height: 26px; padding: 0; border: none; border-radius: 4px; cursor: pointer; background: none; }
@@ -441,10 +444,14 @@
     <div id="color-picker-wrapper" style="position: relative; display: flex; align-items: center;">
         <button id="toolbar-color-btn" class="btn-secondary" title="设置选中节点颜色"><i class="fas fa-palette"></i> 节点颜色</button>
         <div id="color-palette">
-            <div class="swatches" id="swatches-container"></div>
+            <div class="color-section-label">主题颜色</div>
+            <div class="swatches" id="swatches-theme"></div>
+            <div class="color-section-label">标准色</div>
+            <div class="swatches" id="swatches-standard"></div>
             <div class="custom-color-row">
                 <label for="custom-color-input">自定义:</label>
                 <input type="color" id="custom-color-input" value="#383838" title="选择任意颜色">
+                <button id="reset-palette-btn" style="font-size:11px;padding:2px 8px;margin-left:8px;background:var(--btn-bg);color:var(--btn-text);border:1px solid var(--node-border);border-radius:4px;cursor:pointer;">恢复默认</button>
             </div>
         </div>
     </div>
@@ -520,86 +527,164 @@
     window.addEventListener('dragover', e => e.preventDefault());
     window.addEventListener('drop', e => e.preventDefault());
 
+    // Excel 调色板：10列(白/黑/蓝/深蓝/橙/灰/浅绿/天蓝/深绿/紫)×6行(浅→深)
+    // 按行存储，CSS grid 按行读取，颜色位置正确
     const nodeThemes = [
         { id: 0, bg: 'var(--node-bg)', header: 'var(--node-header)', border: 'var(--node-border)' },
-        // === 主题颜色：白/黑 ===
-        { id: 1, bg: '#ffffff', header: '#f5f5f5', border: '#d4d4d4' },
-        { id: 2, bg: '#f5f5f5', header: '#e5e5e5', border: '#a3a3a3' },
-        { id: 3, bg: '#1a1a1a', header: '#111111', border: '#404040' },
-        { id: 4, bg: '#404040', header: '#2d2d2d', border: '#525252' },
-        // === 灰色系 5档 ===
-        { id: 5, bg: '#f0f0f0', header: '#e0e0e0', border: '#bdbdbd' },
-        { id: 6, bg: '#d6d6d6', header: '#c4c4c4', border: '#9e9e9e' },
-        { id: 7, bg: '#a3a3a3', header: '#8a8a8a', border: '#737373' },
-        { id: 8, bg: '#737373', header: '#5c5c5c', border: '#404040' },
-        { id: 9, bg: '#404040', header: '#2d2d2d', border: '#1a1a1a' },
-        // === 蓝色系 5档 ===
-        { id: 10, bg: '#dbeafe', header: '#bfdbfe', border: '#60a5fa' },
-        { id: 11, bg: '#93c5fd', header: '#60a5fa', border: '#3b82f6' },
-        { id: 12, bg: '#3b82f6', header: '#2563eb', border: '#1d4ed8' },
-        { id: 13, bg: '#1d4ed8', header: '#1e40af', border: '#1e3a8a' },
-        { id: 14, bg: '#1e3a8a', header: '#172554', border: '#1e3a5f' },
-        // === 青色系 5档 ===
-        { id: 15, bg: '#cffafe', header: '#a5f3fc', border: '#22d3ee' },
-        { id: 16, bg: '#67e8f9', header: '#22d3ee', border: '#06b6d4' },
-        { id: 17, bg: '#06b6d4', header: '#0891b2', border: '#0e7490' },
-        { id: 18, bg: '#0e7490', header: '#155e75', border: '#164e63' },
-        { id: 19, bg: '#164e63', header: '#0c4a6e', border: '#083344' },
-        // === 绿色系 5档 ===
-        { id: 20, bg: '#dcfce7', header: '#bbf7d0', border: '#4ade80' },
-        { id: 21, bg: '#86efac', header: '#4ade80', border: '#22c55e' },
-        { id: 22, bg: '#22c55e', header: '#16a34a', border: '#15803d' },
-        { id: 23, bg: '#15803d', header: '#166534', border: '#14532d' },
-        { id: 24, bg: '#14532d', header: '#052e16', border: '#064e3b' },
-        // === 黄/金色系 5档 ===
-        { id: 25, bg: '#fef9c3', header: '#fef08a', border: '#facc15' },
-        { id: 26, bg: '#fde047', header: '#facc15', border: '#eab308' },
-        { id: 27, bg: '#eab308', header: '#ca8a04', border: '#a16207' },
-        { id: 28, bg: '#a16207', header: '#854d0e', border: '#713f12' },
-        { id: 29, bg: '#713f12', header: '#5c3310', border: '#422006' },
-        // === 橙色系 5档 ===
-        { id: 30, bg: '#ffedd5', header: '#fed7aa', border: '#fb923c' },
-        { id: 31, bg: '#fdba74', header: '#fb923c', border: '#f97316' },
-        { id: 32, bg: '#f97316', header: '#ea580c', border: '#c2410c' },
-        { id: 33, bg: '#c2410c', header: '#9a3412', border: '#7c2d12' },
-        { id: 34, bg: '#7c2d12', header: '#6c2710', border: '#431407' },
-        // === 红色系 5档 ===
-        { id: 35, bg: '#fee2e2', header: '#fecaca', border: '#f87171' },
-        { id: 36, bg: '#fca5a5', header: '#f87171', border: '#ef4444' },
-        { id: 37, bg: '#ef4444', header: '#dc2626', border: '#b91c1c' },
-        { id: 38, bg: '#b91c1c', header: '#991b1b', border: '#7f1d1d' },
-        { id: 39, bg: '#7f1d1d', header: '#6b1515', border: '#450a0a' },
-        // === 紫色系 5档 ===
-        { id: 40, bg: '#f3e8ff', header: '#e9d5ff', border: '#c084fc' },
-        { id: 41, bg: '#d8b4fe', header: '#c084fc', border: '#a855f7' },
-        { id: 42, bg: '#a855f7', header: '#9333ea', border: '#7e22ce' },
-        { id: 43, bg: '#7e22ce', header: '#6b21a8', border: '#581c87' },
-        { id: 44, bg: '#581c87', header: '#3b0764', border: '#4c1d95' },
-        // === 粉色系 5档 ===
-        { id: 45, bg: '#fce7f3', header: '#fbcfe8', border: '#f9a8d4' },
-        { id: 46, bg: '#f9a8d4', header: '#f472b6', border: '#ec4899' },
-        { id: 47, bg: '#ec4899', header: '#db2777', border: '#be185d' },
-        { id: 48, bg: '#be185d', header: '#9d174d', border: '#831843' },
-        { id: 49, bg: '#831843', header: '#6b1030', border: '#500724' },
-        // === 标准色（高饱和亮色） ===
-        { id: 50, bg: '#ef4444', header: '#dc2626', border: '#b91c1c' },
-        { id: 51, bg: '#f97316', header: '#ea580c', border: '#c2410c' },
-        { id: 52, bg: '#eab308', header: '#ca8a04', border: '#a16207' },
-        { id: 53, bg: '#22c55e', header: '#16a34a', border: '#15803d' },
-        { id: 54, bg: '#06b6d4', header: '#0891b2', border: '#0e7490' },
-        { id: 55, bg: '#3b82f6', header: '#2563eb', border: '#1d4ed8' },
-        { id: 56, bg: '#8b5cf6', header: '#7c3aed', border: '#6d28d9' },
+        // 行0: 最浅
+        { id: 1, bg: '#FFFFFF', header: '#FFFFFF', border: '#FFFFFF' },
+        { id: 2, bg: '#7F7F7F', header: '#7F7F7F', border: '#7F7F7F' },
+        { id: 3, bg: '#BDD7EE', header: '#BDD7EE', border: '#BDD7EE' },
+        { id: 4, bg: '#B4C7E7', header: '#B4C7E7', border: '#B4C7E7' },
+        { id: 5, bg: '#F8CBAD', header: '#F8CBAD', border: '#F8CBAD' },
+        { id: 6, bg: '#D6DCE4', header: '#D6DCE4', border: '#D6DCE4' },
+        { id: 7, bg: '#C6EFCE', header: '#C6EFCE', border: '#C6EFCE' },
+        { id: 8, bg: '#B4E4F7', header: '#B4E4F7', border: '#B4E4F7' },
+        { id: 9, bg: '#C5E0B4', header: '#C5E0B4', border: '#C5E0B4' },
+        { id: 10, bg: '#D5C4E1', header: '#D5C4E1', border: '#D5C4E1' },
+        // 行1: 浅
+        { id: 11, bg: '#F2F2F2', header: '#F2F2F2', border: '#F2F2F2' },
+        { id: 12, bg: '#5B5B5B', header: '#5B5B5B', border: '#5B5B5B' },
+        { id: 13, bg: '#9DC3E6', header: '#9DC3E6', border: '#9DC3E6' },
+        { id: 14, bg: '#8DB4E2', header: '#8DB4E2', border: '#8DB4E2' },
+        { id: 15, bg: '#F4B183', header: '#F4B183', border: '#F4B183' },
+        { id: 16, bg: '#C9C9C9', header: '#C9C9C9', border: '#C9C9C9' },
+        { id: 17, bg: '#92D050', header: '#92D050', border: '#92D050' },
+        { id: 18, bg: '#00B0F0', header: '#00B0F0', border: '#00B0F0' },
+        { id: 19, bg: '#A9D18E', header: '#A9D18E', border: '#A9D18E' },
+        { id: 20, bg: '#B4A7D6', header: '#B4A7D6', border: '#B4A7D6' },
+        // 行2: 中
+        { id: 21, bg: '#D9D9D9', header: '#D9D9D9', border: '#D9D9D9' },
+        { id: 22, bg: '#3A3A3A', header: '#3A3A3A', border: '#3A3A3A' },
+        { id: 23, bg: '#5B9BD5', header: '#5B9BD5', border: '#5B9BD5' },
+        { id: 24, bg: '#4472C4', header: '#4472C4', border: '#4472C4' },
+        { id: 25, bg: '#ED7D31', header: '#ED7D31', border: '#ED7D31' },
+        { id: 26, bg: '#A5A5A5', header: '#A5A5A5', border: '#A5A5A5' },
+        { id: 27, bg: '#70AD47', header: '#70AD47', border: '#70AD47' },
+        { id: 28, bg: '#0098B4', header: '#0098B4', border: '#0098B4' },
+        { id: 29, bg: '#70AD47', header: '#70AD47', border: '#70AD47' },
+        { id: 30, bg: '#8E7CC3', header: '#8E7CC3', border: '#8E7CC3' },
+        // 行3: 深
+        { id: 31, bg: '#BFBFBF', header: '#BFBFBF', border: '#BFBFBF' },
+        { id: 32, bg: '#262626', header: '#262626', border: '#262626' },
+        { id: 33, bg: '#2F78C4', header: '#2F78C4', border: '#2F78C4' },
+        { id: 34, bg: '#38518A', header: '#38518A', border: '#38518A' },
+        { id: 35, bg: '#C55A11', header: '#C55A11', border: '#C55A11' },
+        { id: 36, bg: '#7B7B7B', header: '#7B7B7B', border: '#7B7B7B' },
+        { id: 37, bg: '#548235', header: '#548235', border: '#548235' },
+        { id: 38, bg: '#006E8A', header: '#006E8A', border: '#006E8A' },
+        { id: 39, bg: '#548235', header: '#548235', border: '#548235' },
+        { id: 40, bg: '#7030A0', header: '#7030A0', border: '#7030A0' },
+        // 行4: 深
+        { id: 41, bg: '#A6A6A6', header: '#A6A6A6', border: '#A6A6A6' },
+        { id: 42, bg: '#1A1A1A', header: '#1A1A1A', border: '#1A1A1A' },
+        { id: 43, bg: '#2F5597', header: '#2F5597', border: '#2F5597' },
+        { id: 44, bg: '#283D6B', header: '#283D6B', border: '#283D6B' },
+        { id: 45, bg: '#833C0B', header: '#833C0B', border: '#833C0B' },
+        { id: 46, bg: '#525252', header: '#525252', border: '#525252' },
+        { id: 47, bg: '#375623', header: '#375623', border: '#375623' },
+        { id: 48, bg: '#00507A', header: '#00507A', border: '#00507A' },
+        { id: 49, bg: '#375623', header: '#375623', border: '#375623' },
+        { id: 50, bg: '#4B0082', header: '#4B0082', border: '#4B0082' },
+        // 行5: 最深
+        { id: 51, bg: '#808080', header: '#808080', border: '#808080' },
+        { id: 52, bg: '#0D0D0D', header: '#0D0D0D', border: '#0D0D0D' },
+        { id: 53, bg: '#1D4E89', header: '#1D4E89', border: '#1D4E89' },
+        { id: 54, bg: '#1F3864', header: '#1F3864', border: '#1F3864' },
+        { id: 55, bg: '#5C2D06', header: '#5C2D06', border: '#5C2D06' },
+        { id: 56, bg: '#3B3B3B', header: '#3B3B3B', border: '#3B3B3B' },
+        { id: 57, bg: '#253816', header: '#253816', border: '#253816' },
+        { id: 58, bg: '#003A5C', header: '#003A5C', border: '#003A5C' },
+        { id: 59, bg: '#253816', header: '#253816', border: '#253816' },
+        { id: 60, bg: '#320058', header: '#320058', border: '#320058' },
+        // === 标准色 10个 ===
+        { id: 61, bg: '#C00000', header: '#C00000', border: '#C00000' },
+        { id: 62, bg: '#FF0000', header: '#FF0000', border: '#FF0000' },
+        { id: 63, bg: '#FFC000', header: '#FFC000', border: '#FFC000' },
+        { id: 64, bg: '#FFFF00', header: '#FFFF00', border: '#FFFF00' },
+        { id: 65, bg: '#92D050', header: '#92D050', border: '#92D050' },
+        { id: 66, bg: '#00B050', header: '#00B050', border: '#00B050' },
+        { id: 67, bg: '#00B0F0', header: '#00B0F0', border: '#00B0F0' },
+        { id: 68, bg: '#0070C0', header: '#0070C0', border: '#0070C0' },
+        { id: 69, bg: '#002060', header: '#002060', border: '#002060' },
+        { id: 70, bg: '#7030A0', header: '#7030A0', border: '#7030A0' },
     ];
 
-    const swatchesContainer = document.getElementById('swatches-container');
-    nodeThemes.forEach((theme, index) => {
-        const div = document.createElement('div');
-        div.className = 'swatch';
-        div.style.backgroundColor = theme.bg.startsWith('var') ? '#888' : theme.header;
-        if(index === 0) div.title = "跟随全局主题";
-        div.dataset.theme = index;
-        swatchesContainer.appendChild(div);
-    });
+    // === 调色板系统：支持自定义颜色、localStorage持久化、恢复默认 ===
+    const defaultPalette = JSON.parse(JSON.stringify(nodeThemes));
+    function loadPalette() {
+        try { const saved = localStorage.getItem('flowchart_palette'); if (saved) { const arr = JSON.parse(saved); arr.forEach((c, i) => { if (nodeThemes[i] && c) { nodeThemes[i].bg = c; nodeThemes[i].header = c; nodeThemes[i].border = c; } }); } } catch(e) {}
+    }
+    function savePalette() { localStorage.setItem('flowchart_palette', JSON.stringify(nodeThemes.map(t => t.bg))); }
+    function resetPalette() { localStorage.removeItem('flowchart_palette'); defaultPalette.forEach((t, i) => { nodeThemes[i].bg = t.bg; nodeThemes[i].header = t.header; nodeThemes[i].border = t.border; }); renderSwatches(); }
+    loadPalette();
+    function renderSwatches() {
+        const swTheme = document.getElementById('swatches-theme');
+        const swStd = document.getElementById('swatches-standard');
+        swTheme.innerHTML = ''; swStd.innerHTML = '';
+        let clickTimer = null;
+        nodeThemes.forEach((theme, index) => {
+            const div = document.createElement('div');
+            div.className = 'swatch';
+            div.style.backgroundColor = theme.bg.startsWith('var') ? '#888' : theme.bg;
+            div.title = index === 0 ? "跟随全局主题" : (theme.bg.startsWith('var') ? '默认' : theme.bg);
+            div.dataset.theme = index;
+            div.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; return; }
+                clickTimer = setTimeout(() => {
+                    clickTimer = null;
+                    if (selectedGroupId) {
+                        saveUndoState();
+                        applyGroupColor(selectedGroupId, theme.bg.startsWith('var') ? '#888888' : theme.bg);
+                    } else if (selectedNodes.size > 0) {
+                        saveUndoState();
+                        selectedNodes.forEach(id => applyNodeColor(id, index, null));
+                    }
+                    document.getElementById('color-palette').classList.remove('show');
+                }, 250);
+            });
+            if (index > 0) {
+                div.addEventListener('dblclick', (e) => {
+                    e.stopPropagation();
+                    if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+                    // 关闭旧弹窗
+                    const old = document.getElementById('inline-color-picker');
+                    if (old) old.remove();
+                    // 创建弹窗定位到色块右侧
+                    const rect = div.getBoundingClientRect();
+                    const popup = document.createElement('div');
+                    popup.id = 'inline-color-picker';
+                    popup.style.cssText = `position:fixed;left:${rect.right + 6}px;top:${rect.top - 10}px;z-index:10000;background:var(--node-bg);border:1px solid var(--node-border);border-radius:6px;padding:8px;box-shadow:0 4px 12px rgba(0,0,0,0.4);display:flex;align-items:center;gap:8px;`;
+                    const picker = document.createElement('input');
+                    picker.type = 'color';
+                    picker.value = theme.bg.startsWith('var') ? '#888888' : theme.bg;
+                    picker.style.cssText = 'width:40px;height:32px;border:none;padding:0;cursor:pointer;border-radius:4px;';
+                    const label = document.createElement('span');
+                    label.textContent = '自定义颜色';
+                    label.style.cssText = 'font-size:11px;color:var(--btn-text);white-space:nowrap;';
+                    popup.appendChild(picker);
+                    popup.appendChild(label);
+                    document.body.appendChild(popup);
+                    picker.addEventListener('input', () => {
+                        nodeThemes[index].bg = picker.value;
+                        nodeThemes[index].header = picker.value;
+                        nodeThemes[index].border = picker.value;
+                        div.style.backgroundColor = picker.value;
+                        div.title = picker.value;
+                    });
+                    picker.addEventListener('change', () => { savePalette(); popup.remove(); });
+                    // 点击外部关闭
+                    const closeHandler = (ev) => { if (!popup.contains(ev.target) && ev.target !== div) { popup.remove(); document.removeEventListener('mousedown', closeHandler); } };
+                    setTimeout(() => document.addEventListener('mousedown', closeHandler), 0);
+                });
+            }
+            if (index <= 60) swTheme.appendChild(div);
+            else swStd.appendChild(div);
+        });
+    }
+    renderSwatches();
+    document.getElementById('reset-palette-btn').addEventListener('click', (e) => { e.stopPropagation(); resetPalette(); });
 
     let nodes = {}; 
     let connections = []; 
@@ -3089,7 +3174,7 @@
     window.addEventListener('dblclick', (e) => {
         if (isScissorsMode) return;
         if (document.getElementById('media-preview-modal').classList.contains('show')) return;
-        if (e.target.closest('.node') || e.target.closest('#toolbar') || e.target.closest('#left-toolbar')) return;
+        if (e.target.closest('.node') || e.target.closest('#toolbar') || e.target.closest('#left-toolbar') || e.target.closest('#color-palette') || e.target.closest('.swatch')) return;
         if (e.button === 0 && isBackgroundEvent(e)) { const l = screenToWorkspace(e.clientX, e.clientY); saveUndoState(); createNode(l.x - 120, l.y - 100); }
     });
 
@@ -3200,17 +3285,14 @@
 
     function openVideoPreview(src) { 
         if (!src.startsWith('blob:') && !src.startsWith('http')) { alert('本地视频因安全机制(桌面端打包)无法记录绝对路径。\n请点击右侧"关联"图标重新选择该视频文件。'); return; }
-        previewVid.src = src; previewVid.style.display = 'block'; previewImg.style.display = 'none';
+        previewVid.src = src;
+        previewVid.style.display = 'block';
+        previewImg.style.display = 'none';
         document.getElementById('preview-video-tip').style.display = 'block';
         document.getElementById('preview-image-tip').style.display = 'none';
         modal.classList.add('show');
-        // 等待视频就绪再播放，兼容移动端
-        const tryPlay = () => {
-            const p = previewVid.play();
-            if (p !== undefined) p.catch(() => {});
-        };
-        if (previewVid.readyState >= 2) { tryPlay(); }
-        else { previewVid.oncanplay = () => { previewVid.oncanplay = null; tryPlay(); }; }
+        previewVid.load();
+        previewVid.play().catch(() => {});
     }
     function updatePreviewImgTransform() { previewImg.style.transform = `translate(${previewImgPanX}px, ${previewImgPanY}px) scale(${previewImgScale})`; }
     function closePreview() { modal.classList.remove('show'); if(previewVid.style.display === 'block') { previewVid.pause(); previewVid.src = ''; } }
@@ -3288,7 +3370,8 @@
         const exportNodes = JSON.parse(JSON.stringify(nodes));
         for(let id in exportNodes) exportNodes[id].videos.forEach(v => { if(v.src.startsWith('blob:')) v.src = v.name; });
         const exportGroups = groups.map(g => ({id: g.id, nodeIds: Array.from(g.nodeIds), color: g.color, borderColor: g.borderColor, name: g.name}));
-        const dataStr = JSON.stringify({ nodes: exportNodes, connections, groups: exportGroups, scale, panX, panY });
+        const exportPalette = nodeThemes.map(t => t.bg);
+        const dataStr = JSON.stringify({ nodes: exportNodes, connections, groups: exportGroups, palette: exportPalette, scale, panX, panY });
         
         // 1. 尝试高级电脑端文件保存句柄 picker 
         try {
@@ -3359,6 +3442,10 @@
                             groups = data.groups.map(g => ({...g, nodeIds: new Set(g.nodeIds)}));
                             renderAllGroups();
                         }
+                        if (data.palette) {
+                            data.palette.forEach((c, i) => { if (nodeThemes[i] && c) { nodeThemes[i].bg = c; nodeThemes[i].header = c; nodeThemes[i].border = c; } });
+                            savePalette(); renderSwatches();
+                        }
                     }
                 } catch (err) { alert("读取存档失败！文件格式不正确或已损坏。"); }
             };
@@ -3393,16 +3480,6 @@
         e.stopPropagation(); 
         document.getElementById('color-palette').classList.toggle('show'); 
     });
-
-    document.querySelectorAll('.swatch').forEach(s => s.addEventListener('click', (e) => {
-        e.stopPropagation(); 
-        if (selectedGroupId) {
-            saveUndoState();
-            const theme = nodeThemes[parseInt(s.dataset.theme)];
-            if (theme) applyGroupColor(selectedGroupId, theme.header);
-        } else if (selectedNodes.size > 0) { saveUndoState(); selectedNodes.forEach(id => applyNodeColor(id, parseInt(s.dataset.theme), null)); }
-        document.getElementById('color-palette').classList.remove('show');
-    }));
 
     document.getElementById('custom-color-input').addEventListener('input', (e) => { 
         if (selectedGroupId) {
