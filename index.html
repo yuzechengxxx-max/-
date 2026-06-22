@@ -3283,10 +3283,25 @@
 
     function openVideoPreview(src) { 
         if (!src.startsWith('blob:') && !src.startsWith('http')) { alert('本地视频因安全机制(桌面端打包)无法记录绝对路径。\n请点击右侧"关联"图标重新选择该视频文件。'); return; }
-        previewVid.src = src; previewVid.style.display = 'block'; previewImg.style.display = 'none'; modal.classList.add('show'); previewVid.play(); 
+        // 每次创建全新 video 元素，避免状态污染
+        const oldVid = document.getElementById('preview-video');
+        if (oldVid) oldVid.remove();
+        const vid = document.createElement('video');
+        vid.id = 'preview-video';
+        vid.controls = true;
+        vid.style.cssText = 'position:relative;z-index:10;max-width:90%;max-height:90%;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,0.5);border:2px solid #555;outline:none;pointer-events:auto;';
+        modal.appendChild(vid);
+        previewVid = vid;
+        previewVid.style.display = 'block';
+        previewImg.style.display = 'none';
+        document.getElementById('preview-video-tip').style.display = 'block';
+        document.getElementById('preview-image-tip').style.display = 'none';
+        modal.classList.add('show');
+        previewVid.src = src;
+        previewVid.play().catch(() => {});
     }
     function updatePreviewImgTransform() { previewImg.style.transform = `translate(${previewImgPanX}px, ${previewImgPanY}px) scale(${previewImgScale})`; }
-    function closePreview() { modal.classList.remove('show'); if(previewVid.style.display === 'block') { previewVid.pause(); previewVid.src = ''; } }
+    function closePreview() { modal.classList.remove('show'); if(previewVid && previewVid.style.display === 'block') { previewVid.pause(); previewVid.src = ''; } }
     
     modal.addEventListener('click', (e) => { if(e.target === modal || e.target.classList.contains('preview-image-container')) closePreview(); });
     modal.addEventListener('dblclick', () => { if(previewImg.style.display === 'block') closePreview(); });
