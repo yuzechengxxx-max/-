@@ -1486,9 +1486,9 @@
             if (n) {
                 const vid = n.videos.find(v => v.id === window.relinkData.vidId);
                 if (vid) {
-                    const reader = new FileReader();
-                    reader.onload = (ev) => { vid.src = ev.target.result; renderNodeMedia(window.relinkData.nodeId); };
-                    reader.readAsDataURL(file);
+                    vid.src = URL.createObjectURL(file);
+                    videoFileRefs[vid.id] = file;
+                    renderNodeMedia(window.relinkData.nodeId);
                 }
             }
         }
@@ -1550,12 +1550,11 @@
                 };
                 reader.readAsDataURL(file);
             } else if (file.type.startsWith('video/')) {
-                const vReader = new FileReader();
-                vReader.onload = (ev) => {
-                    n.videos.push({id: generateId(), name: file.name, originalName: file.name, src: ev.target.result});
-                    renderNodeMedia(nodeId);
-                };
-                vReader.readAsDataURL(file);
+                const vidId = generateId();
+                const url = URL.createObjectURL(file);
+                videoFileRefs[vidId] = file;
+                n.videos.push({id: vidId, name: file.name, originalName: file.name, src: url});
+                renderNodeMedia(nodeId);
             }
         });
     }
@@ -3296,14 +3295,7 @@
 
     function openVideoPreview(src) { 
         if (!src.startsWith('blob:') && !src.startsWith('http') && !src.startsWith('data:')) { alert('本地视频因安全机制(桌面端打包)无法记录绝对路径。\n请点击右侧"关联"图标重新选择该视频文件。'); return; }
-        previewVid.src = src;
-        previewVid.style.display = 'block';
-        previewImg.style.display = 'none';
-        modal.classList.add('show');
-        // 诊断
-        previewVid.onloadeddata = () => { alert('视频加载成功！时长: ' + previewVid.duration + '秒'); previewVid.play().catch(() => {}); };
-        previewVid.onerror = () => { alert('视频加载失败！错误码: ' + (previewVid.error ? previewVid.error.code : '未知')); };
-        previewVid.onstalled = () => { alert('视频加载停滞'); };
+        previewVid.src = src; previewVid.style.display = 'block'; previewImg.style.display = 'none'; modal.classList.add('show'); previewVid.play(); 
     }
     function updatePreviewImgTransform() { previewImg.style.transform = `translate(${previewImgPanX}px, ${previewImgPanY}px) scale(${previewImgScale})`; }
     function closePreview() { modal.classList.remove('show'); if(previewVid && previewVid.style.display === 'block') { previewVid.pause(); previewVid.src = ''; } }
@@ -3480,16 +3472,17 @@
         }); this.value = '';
     });
 
+    // 保留 File 引用防止垃圾回收导致 blob URL 失效
+    const videoFileRefs = {};
+
     document.getElementById('video-upload-input').addEventListener('change', function(e) {
         if(!window.activeMediaNode) return;
         const f = e.target.files[0]; if(!f) return;
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-            nodes[window.activeMediaNode].videos.push({id: generateId(), name: f.name, originalName: f.name, src: ev.target.result});
-            renderNodeMedia(window.activeMediaNode);
-        };
-        reader.readAsDataURL(f);
-        this.value = '';
+        const vidId = generateId();
+        const url = URL.createObjectURL(f);
+        videoFileRefs[vidId] = f;
+        nodes[window.activeMediaNode].videos.push({id: vidId, name: f.name, originalName: f.name, src: url});
+        renderNodeMedia(window.activeMediaNode); this.value = '';
     });
 
     document.getElementById('toolbar-color-btn').addEventListener('click', (e) => { 
