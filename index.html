@@ -1362,22 +1362,18 @@
                         <span class="video-name" style="color:${nameColor}">${vid.name}</span>
                     </div>
                     <div class="video-actions">
-                        <i class="fas fa-link v-btn" title="重新关联本地视频" onmousedown="event.stopPropagation();" onclick="event.stopPropagation(); window.triggerRelinkVid(this, '${nodeId}', '${vid.id}')" ontouchstart="event.stopPropagation(); window.triggerRelinkVid(this, '${nodeId}', '${vid.id}')"></i>
-                        <i class="fas fa-edit v-btn" title="重命名" onmousedown="event.stopPropagation();" onclick="event.stopPropagation(); window.startRenameVid(this, '${nodeId}', '${vid.id}')" ontouchstart="event.stopPropagation(); window.startRenameVid(this, '${nodeId}', '${vid.id}')"></i>
-                        <i class="fas fa-times video-del-btn v-btn" title="删除" onmousedown="event.stopPropagation();" onclick="event.stopPropagation(); window.deleteVid('${nodeId}', '${vid.id}')" ontouchstart="event.stopPropagation(); window.deleteVid('${nodeId}', '${vid.id}')"></i>
+                        <i class="fas fa-link v-btn" title="重新关联本地视频" onmousedown="event.stopPropagation();" onclick="event.stopPropagation(); window.triggerRelinkVid(this, '${nodeId}', '${vid.id}')"></i>
+                        <i class="fas fa-edit v-btn" title="重命名" onmousedown="event.stopPropagation();" onclick="event.stopPropagation(); window.startRenameVid(this, '${nodeId}', '${vid.id}')"></i>
+                        <i class="fas fa-times video-del-btn v-btn" title="删除" onmousedown="event.stopPropagation();" onclick="event.stopPropagation(); window.deleteVid('${nodeId}', '${vid.id}')"></i>
                     </div>
                 `;
                 
-                const playHandler = (e) => {
+                itemEl.querySelector('.video-info').addEventListener('click', (e) => {
                     e.stopPropagation();
                     const nameSpan = itemEl.querySelector('.video-name');
                     if (nameSpan.contentEditable === "true") return;
                     openVideoPreview(vid.src);
-                };
-
-                itemEl.querySelector('.video-info').addEventListener('click', playHandler);
-                // 阻止 touchstart 冒泡到 gallery handler（gallery 有 passive:false 会抑制 iOS click 合成）
-                itemEl.querySelector('.video-info').addEventListener('touchstart', (e) => { e.stopPropagation(); }, { passive: true });
+                });
                 
                 videoListWrapper.appendChild(itemEl);
             });
@@ -1737,6 +1733,7 @@
         // 注意：不调stopPropagation()，让事件冒泡到workspaceContainer设置activeTouchId
         gallery.addEventListener('touchstart', (e) => {
             if (isScissorsMode || e.touches.length !== 1) return;
+            if (e.target.closest('.video-info')) return;
             const target = e.target;
             const touch = e.touches[0];
             
@@ -2301,6 +2298,8 @@
     workspaceContainer.addEventListener('touchstart', (e) => {
         // 先检查是否处于触控模式
         if (!isTouchMode) return;
+        // 跳过 video-info 区域，允许浏览器合成 click 事件
+        if (e.target.closest('.video-info')) return;
 
         // 1. 三指双击切换剪刀工具判定
         if (e.touches.length === 3) {
@@ -3288,22 +3287,7 @@
 
     function openVideoPreview(src) { 
         if (!src.startsWith('blob:') && !src.startsWith('http')) { alert('本地视频因安全机制(桌面端打包)无法记录绝对路径。\n请点击右侧"关联"图标重新选择该视频文件。'); return; }
-        // 每次创建全新 video 元素，避免状态污染
-        const oldVid = document.getElementById('preview-video');
-        if (oldVid) oldVid.remove();
-        const vid = document.createElement('video');
-        vid.id = 'preview-video';
-        vid.controls = true;
-        vid.style.cssText = 'position:relative;z-index:10;max-width:90%;max-height:90%;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,0.5);border:2px solid #555;outline:none;pointer-events:auto;';
-        modal.appendChild(vid);
-        previewVid = vid;
-        previewVid.style.display = 'block';
-        previewImg.style.display = 'none';
-        document.getElementById('preview-video-tip').style.display = 'block';
-        document.getElementById('preview-image-tip').style.display = 'none';
-        modal.classList.add('show');
-        previewVid.src = src;
-        previewVid.play().catch(() => {});
+        previewVid.src = src; previewVid.style.display = 'block'; previewImg.style.display = 'none'; modal.classList.add('show'); previewVid.play(); 
     }
     function updatePreviewImgTransform() { previewImg.style.transform = `translate(${previewImgPanX}px, ${previewImgPanY}px) scale(${previewImgScale})`; }
     function closePreview() { modal.classList.remove('show'); if(previewVid && previewVid.style.display === 'block') { previewVid.pause(); previewVid.src = ''; } }
