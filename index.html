@@ -3286,7 +3286,6 @@
     window.openImagePreview = openImagePreview;
 
     function openVideoPreview(src) { 
-        alert('视频地址: ' + src.substring(0, 80));
         if (!src.startsWith('blob:') && !src.startsWith('http')) { alert('本地视频因安全机制(桌面端打包)无法记录绝对路径。\n请点击右侧"关联"图标重新选择该视频文件。'); return; }
         previewVid.src = src; previewVid.style.display = 'block'; previewImg.style.display = 'none'; modal.classList.add('show'); previewVid.play(); 
     }
