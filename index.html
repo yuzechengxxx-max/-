@@ -517,7 +517,7 @@
     <div class="preview-tip" id="preview-image-tip">滚轮缩放 | 按住拖拽平移 | 双击背景退出</div>
     <div class="preview-tip" id="preview-video-tip" style="display:none;">双击背景退出</div>
     <div class="preview-image-container"><img id="preview-image" src="" alt="预览" draggable="false"></div>
-    <video id="preview-video" controls></video>
+    <video id="preview-video" controls playsinline webkitplaysinline></video>
 </div>
 
 <input type="file" id="image-upload-input" style="display: none;" accept="image/*" multiple>
@@ -3296,7 +3296,9 @@
 
     function openVideoPreview(src) { 
         if (!src.startsWith('blob:') && !src.startsWith('http') && !src.startsWith('data:')) { alert('本地视频因安全机制(桌面端打包)无法记录绝对路径。\n请点击右侧"关联"图标重新选择该视频文件。'); return; }
-        previewVid.src = src; previewVid.style.display = 'block'; previewImg.style.display = 'none'; modal.classList.add('show'); previewVid.play(); 
+        previewVid.src = src; previewVid.style.display = 'block'; previewImg.style.display = 'none'; modal.classList.add('show');
+        // iOS Safari: 等元数据加载后再播放
+        previewVid.onloadedmetadata = () => { previewVid.play().catch(() => {}); };
     }
     function updatePreviewImgTransform() { previewImg.style.transform = `translate(${previewImgPanX}px, ${previewImgPanY}px) scale(${previewImgScale})`; }
     function closePreview() { modal.classList.remove('show'); if(previewVid && previewVid.style.display === 'block') { previewVid.pause(); previewVid.src = ''; } }
