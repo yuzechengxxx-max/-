@@ -1347,7 +1347,7 @@
             videoListWrapper.style.height = `${n.vidListHeight || 100}px`;
 
             n.videos.forEach(vid => {
-                const isBroken = !vid.src.startsWith('blob:') && !vid.src.startsWith('http');
+                const isBroken = !vid.src.startsWith('blob:') && !vid.src.startsWith('http') && !vid.src.startsWith('data:');
                 const nameColor = isBroken ? '#ef4444' : '#3b82f6';
                 const warningIcon = isBroken ? `<i class="fas fa-exclamation-triangle" style="color:#ef4444; margin-right:4px;" title="本地文件已断开"></i>` : '';
                 
@@ -1485,7 +1485,11 @@
             const n = nodes[window.relinkData.nodeId];
             if (n) {
                 const vid = n.videos.find(v => v.id === window.relinkData.vidId);
-                if (vid) { vid.src = URL.createObjectURL(file); renderNodeMedia(window.relinkData.nodeId); }
+                if (vid) {
+                    const reader = new FileReader();
+                    reader.onload = (ev) => { vid.src = ev.target.result; renderNodeMedia(window.relinkData.nodeId); };
+                    reader.readAsDataURL(file);
+                }
             }
         }
         this.value = '';
@@ -1546,8 +1550,12 @@
                 };
                 reader.readAsDataURL(file);
             } else if (file.type.startsWith('video/')) {
-                n.videos.push({id: generateId(), name: file.name, originalName: file.name, src: URL.createObjectURL(file)});
-                renderNodeMedia(nodeId);
+                const vReader = new FileReader();
+                vReader.onload = (ev) => {
+                    n.videos.push({id: generateId(), name: file.name, originalName: file.name, src: ev.target.result});
+                    renderNodeMedia(nodeId);
+                };
+                vReader.readAsDataURL(file);
             }
         });
     }
@@ -3287,7 +3295,7 @@
     window.openImagePreview = openImagePreview;
 
     function openVideoPreview(src) { 
-        if (!src.startsWith('blob:') && !src.startsWith('http')) { alert('本地视频因安全机制(桌面端打包)无法记录绝对路径。\n请点击右侧"关联"图标重新选择该视频文件。'); return; }
+        if (!src.startsWith('blob:') && !src.startsWith('http') && !src.startsWith('data:')) { alert('本地视频因安全机制(桌面端打包)无法记录绝对路径。\n请点击右侧"关联"图标重新选择该视频文件。'); return; }
         previewVid.src = src; previewVid.style.display = 'block'; previewImg.style.display = 'none'; modal.classList.add('show'); previewVid.play(); 
     }
     function updatePreviewImgTransform() { previewImg.style.transform = `translate(${previewImgPanX}px, ${previewImgPanY}px) scale(${previewImgScale})`; }
@@ -3468,8 +3476,13 @@
     document.getElementById('video-upload-input').addEventListener('change', function(e) {
         if(!window.activeMediaNode) return;
         const f = e.target.files[0]; if(!f) return;
-        nodes[window.activeMediaNode].videos.push({id: generateId(), name: f.name, originalName: f.name, src: URL.createObjectURL(f)});
-        renderNodeMedia(window.activeMediaNode); this.value = '';
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            nodes[window.activeMediaNode].videos.push({id: generateId(), name: f.name, originalName: f.name, src: ev.target.result});
+            renderNodeMedia(window.activeMediaNode);
+        };
+        reader.readAsDataURL(f);
+        this.value = '';
     });
 
     document.getElementById('toolbar-color-btn').addEventListener('click', (e) => { 
