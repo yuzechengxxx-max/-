@@ -2652,6 +2652,7 @@
         }
 
         if (e.touches.length === 0) {
+            activeTouchId = null;
             // --- 【滑完即关】：手指一离开屏幕（touchend）立刻推出并切回正常选择状态
             if (isScissorsMode) {
                 isCutting = false;
